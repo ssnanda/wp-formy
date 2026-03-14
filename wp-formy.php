@@ -3,7 +3,7 @@
  * Plugin Name:       WP Formy
  * Plugin URI:        https://example.com/wp-formy
  * Description:       A custom WordPress form builder plugin.
- * Version:           1.0.0
+ * Version:           1.0.3
  * Author:            Your Name
  * Author URI:        https://example.com
  * License:           GPL-2.0+
@@ -18,7 +18,7 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 // Define plugin constants.
-define( 'WP_FORMY_VERSION', '1.0.2' );
+define( 'WP_FORMY_VERSION', '1.0.3' );
 define( 'WP_FORMY_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WP_FORMY_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'WP_FORMY_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );

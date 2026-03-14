@@ -98,11 +98,35 @@ class WP_Formy_Forms_List_Table extends WP_List_Table {
 		}
 
 		$orderby = isset( $_GET['orderby'] ) ? sanitize_text_field( wp_unslash( $_GET['orderby'] ) ) : 'created_at';
-		$order   = isset( $_GET['order'] ) && strtolower( sanitize_text_field( wp_unslash( $_GET['order'] ) ) ) === 'asc' ? 'ASC' : 'DESC';
+		$order   = isset( $_GET['order'] ) ? sanitize_text_field( wp_unslash( $_GET['order'] ) ) : 'DESC';
+
+		// Only allow safe orderby/order values to prevent SQL errors.
+		$allowed_orderby = array( 'title', 'created_at' );
+		if ( ! in_array( $orderby, $allowed_orderby, true ) ) {
+			$orderby = 'created_at';
+		}
+
+		$order = strtoupper( $order ) === 'ASC' ? 'ASC' : 'DESC';
 
 		$total_items = $wpdb->get_var( "SELECT COUNT(id) FROM {$table_name}" );
 
-		$this->items = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table_name} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d", $per_page, $offset ), ARRAY_A );
+		$sql = $wpdb->prepare( "SELECT * FROM {$table_name} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d", $per_page, $offset );
+		$this->items = $wpdb->get_results( $sql, ARRAY_A );
+
+		// Debug: if there are supposed to be rows but none are returned, show more info.
+		if ( $total_items > 0 && empty( $this->items ) ) {
+			// PHP error_log helps when debug display is disabled.
+			error_log( "WP Formy: expected {$total_items} rows but query returned none. SQL: {$sql} DB error: {$wpdb->last_error}" );
+
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				add_action( 'admin_notices', function() use ( $wpdb, $sql, $total_items ) {
+					$error = $wpdb->last_error ? ' (DB error: ' . esc_html( $wpdb->last_error ) . ')' : '';
+					echo '<div class="notice notice-warning"><p><strong>WP Formy:</strong> expected ' . esc_html( $total_items ) . ' rows but query returned none' . $error . '.</p>';
+					echo '<p><strong>SQL:</strong> ' . esc_html( $sql ) . '</p>';
+					echo '</div>';
+				} );
+			}
+		}
 
 		$this->set_pagination_args( array(
 			'total_items' => $total_items,

@@ -131,8 +131,15 @@ class WP_Formy_Admin {
 		}
 
 		// Detect if this is a SureForms export format
+		$sureforms_payload = null;
 		if ( isset( $data[0]['post'] ) && isset( $data[0]['post_meta'] ) ) {
-			$converted = $this->convert_sureforms_export( $data[0] );
+			$sureforms_payload = $data[0];
+		} elseif ( isset( $data['post'] ) && isset( $data['post_meta'] ) ) {
+			$sureforms_payload = $data;
+		}
+
+		if ( $sureforms_payload ) {
+			$converted = $this->convert_sureforms_export( $sureforms_payload );
 			$title = $converted['title'];
 			$schema = $converted['schema'];
 		} else {
@@ -142,6 +149,11 @@ class WP_Formy_Admin {
 
 		if ( ! $title ) {
 			$title = __( 'Imported Form', 'wp-formy' );
+		}
+
+		// If we couldn't extract any fields, fail early to avoid creating empty forms.
+		if ( ! is_array( $schema ) || empty( $schema ) ) {
+			wp_send_json_error( __( 'Import failed: no form fields were detected.', 'wp-formy' ) );
 		}
 
 		$schema_json = wp_json_encode( $schema );
@@ -184,7 +196,16 @@ class WP_Formy_Admin {
 
 		// Parse blocks from post_content
 		$content = isset( $sureforms['post']['post_content'] ) ? $sureforms['post']['post_content'] : '';
-		if ( preg_match_all( '/<!--\s*wp:srfm\/([a-z0-9\-]+)\s+({.*?})\s*\/-->/si', $content, $matches, PREG_SET_ORDER ) ) {
+		if ( function_exists( 'parse_blocks' ) ) {
+			$blocks = parse_blocks( $content );
+			$schema = $this->extract_sureforms_fields_from_blocks( $blocks );
+
+			return array(
+				'title'  => $title,
+				'schema' => $schema,
+			);
+		}
+		if ( preg_match_all( '/<!--\s*wp:srfm\/([a-z0-9\-]+)\s+({[\s\S]*?})\s*(?:\/)?-->/si', $content, $matches, PREG_SET_ORDER ) ) {
 			foreach ( $matches as $match ) {
 				$block_type = $match[1];
 				$block_json = json_decode( $match[2], true );
@@ -203,6 +224,37 @@ class WP_Formy_Admin {
 			'title'  => $title,
 			'schema' => $schema,
 		);
+	}
+
+	/**
+	 * Extract SureForms fields from parsed Gutenberg blocks.
+	 *
+	 * @param array $blocks
+	 * @return array
+	 */
+	private function extract_sureforms_fields_from_blocks( $blocks ) {
+		$fields = array();
+
+		foreach ( $blocks as $block ) {
+			if ( empty( $block['blockName'] ) ) {
+				continue;
+			}
+
+			if ( 0 === strpos( $block['blockName'], 'srfm/' ) ) {
+				$block_type = substr( $block['blockName'], strlen( 'srfm/' ) );
+				$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
+				$field = $this->map_sureforms_block_to_field( $block_type, $attrs );
+				if ( $field ) {
+					$fields[] = $field;
+				}
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$fields = array_merge( $fields, $this->extract_sureforms_fields_from_blocks( $block['innerBlocks'] ) );
+			}
+		}
+
+		return $fields;
 	}
 
 	/**
@@ -229,14 +281,33 @@ class WP_Formy_Admin {
 		}
 
 		$type = $map[ $block_type ];
-		$label = isset( $data['label'] ) ? sanitize_text_field( $data['label'] ) : '';
-		$required = ! empty( $data['required'] );
+
+		// SureForms has varied export schemas across versions.
+		$label = '';
+		if ( ! empty( $data['label'] ) ) {
+			$label = sanitize_text_field( $data['label'] );
+		} elseif ( ! empty( $data['fieldLabel'] ) ) {
+			$label = sanitize_text_field( $data['fieldLabel'] );
+		} elseif ( ! empty( $data['title'] ) ) {
+			$label = sanitize_text_field( $data['title'] );
+		} elseif ( ! empty( $data['name'] ) ) {
+			$label = sanitize_text_field( $data['name'] );
+		}
+
+		$required = ! empty( $data['required'] ) || ! empty( $data['isRequired'] );
+
+		$placeholder = '';
+		if ( ! empty( $data['placeholder'] ) ) {
+			$placeholder = sanitize_text_field( $data['placeholder'] );
+		} elseif ( ! empty( $data['placeholderText'] ) ) {
+			$placeholder = sanitize_text_field( $data['placeholderText'] );
+		}
 
 		$field = array(
 			'id'          => 'field_' . wp_generate_uuid4(),
 			'type'        => $type,
 			'label'       => $label,
-			'placeholder' => '',
+			'placeholder' => $placeholder,
 			'required'    => $required,
 			'css_class'   => '',
 		);
@@ -249,6 +320,8 @@ class WP_Formy_Admin {
 					$options[] = sanitize_text_field( $opt['optionTitle'] );
 				} elseif ( isset( $opt['label'] ) ) {
 					$options[] = sanitize_text_field( $opt['label'] );
+				} elseif ( isset( $opt['text'] ) ) {
+					$options[] = sanitize_text_field( $opt['text'] );
 				}
 			}
 		}

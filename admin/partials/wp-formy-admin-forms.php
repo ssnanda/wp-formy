@@ -10,6 +10,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 $forms_list_table = new WP_Formy_Forms_List_Table();
 $forms_list_table->prepare_items();
 
+// Debug helper: show current list query state for admins.
+if ( current_user_can( 'manage_options' ) ) {
+	$total_items = $forms_list_table->get_pagination_arg( 'total_items' );
+	$items = $forms_list_table->items;
+	echo '<div class="notice notice-info"><p><strong>WP Formy debug:</strong> total_items=' . esc_html( $total_items ) . ' | items_count=' . esc_html( is_array( $items ) ? count( $items ) : 0 ) . '</p><pre>' . esc_html( print_r( $items, true ) ) . '</pre></div>';
+}
+
 $add_new_url = add_query_arg( array( 'page' => 'wp-formy', 'action' => 'add' ), admin_url( 'admin.php' ) );
 ?>
 
@@ -43,7 +50,7 @@ $add_new_url = add_query_arg( array( 'page' => 'wp-formy', 'action' => 'add' ), 
 		const payload = {
 			action: 'wpf_import_form',
 			nonce: nonce,
-			data: json,
+			data: JSON.stringify(json),
 		};
 
 		const formData = new FormData();

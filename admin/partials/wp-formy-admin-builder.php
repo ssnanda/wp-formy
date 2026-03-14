@@ -163,7 +163,7 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 			<button class="wpf-btn wpf-btn-secondary">⚙ Settings</button>
 		</div>
 		<div class="wpf-toolbar-center">
-			<input type="text" id="wpf-form-title" class="wpf-form-title-input" value="Untitled Form" placeholder="Enter Form Title...">
+			<input type="text" id="wpf-form-title" class="wpf-form-title-input" value="<?php echo esc_attr( $initial_data['title'] ?: 'Untitled Form' ); ?>" placeholder="Enter Form Title...">
 		</div>
 		<div class="wpf-toolbar-right">
 			<button class="wpf-btn wpf-btn-secondary">Save Draft</button>
