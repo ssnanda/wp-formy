@@ -113,20 +113,26 @@ class WP_Formy_Forms_List_Table extends WP_List_Table {
 		$sql = $wpdb->prepare( "SELECT * FROM {$table_name} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d", $per_page, $offset );
 		$this->items = $wpdb->get_results( $sql, ARRAY_A );
 
-		// Debug: if there are supposed to be rows but none are returned, show more info.
-		if ( $total_items > 0 && empty( $this->items ) ) {
-			// PHP error_log helps when debug display is disabled.
-			error_log( "WP Formy: expected {$total_items} rows but query returned none. SQL: {$sql} DB error: {$wpdb->last_error}" );
-
-			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				add_action( 'admin_notices', function() use ( $wpdb, $sql, $total_items ) {
-					$error = $wpdb->last_error ? ' (DB error: ' . esc_html( $wpdb->last_error ) . ')' : '';
-					echo '<div class="notice notice-warning"><p><strong>WP Formy:</strong> expected ' . esc_html( $total_items ) . ' rows but query returned none' . $error . '.</p>';
-					echo '<p><strong>SQL:</strong> ' . esc_html( $sql ) . '</p>';
-					echo '</div>';
-				} );
+		// Debug: show what was returned to help diagnose why list appears empty.
+		add_action( 'admin_notices', function() use ( $wpdb, $sql, $total_items ) {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				return;
 			}
-		}
+
+			$items = $this->items;
+			$items_count = is_array( $items ) ? count( $items ) : 0;
+
+			echo '<div class="notice notice-info"><p><strong>WP Formy debug:</strong> total_items=' . esc_html( $total_items ) . ' | items_count=' . esc_html( $items_count ) . '.</p>';
+			echo '<p><strong>Query:</strong> ' . esc_html( $sql ) . '</p>';
+
+			if ( $items_count > 0 ) {
+				echo '<pre>' . esc_html( print_r( $items, true ) ) . '</pre>';
+			} else {
+				echo '<p><strong>DB error:</strong> ' . esc_html( $wpdb->last_error ) . '</p>';
+			}
+
+			echo '</div>';
+		} );
 
 		$this->set_pagination_args( array(
 			'total_items' => $total_items,
