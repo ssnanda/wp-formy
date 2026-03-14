@@ -58,29 +58,17 @@ class WP_Formy_Forms_List_Table extends WP_List_Table {
 	}
 
 	protected function column_title( $item ) {
-		$edit_url   = add_query_arg( array( 'page' => 'wp-formy', 'action' => 'edit', 'form_id' => $item['id'] ), admin_url( 'admin.php' ) );
-		$delete_url = wp_nonce_url( add_query_arg( array( 'page' => 'wp-formy', 'action' => 'delete', 'form_id' => $item['id'] ), admin_url( 'admin.php' ) ), 'delete_form_' . $item['id'] );
-		
-		$actions = array(
-			'edit'      => sprintf( '<a href="%s">%s</a>', esc_url( $edit_url ), __( 'Edit', 'wp-formy' ) ),
-			'preview'   => sprintf( '<a href="#">%s</a>', __( 'Preview', 'wp-formy' ) ),
-			'duplicate' => sprintf( '<a href="#">%s</a>', __( 'Duplicate', 'wp-formy' ) ),
-			'export'    => sprintf( '<a href="#">%s</a>', __( 'Export', 'wp-formy' ) ),
-			'delete'    => sprintf( '<a href="%s" style="color: #a00;">%s</a>', esc_url( $delete_url ), __( 'Delete', 'wp-formy' ) ),
-		);
+		$edit_url = add_query_arg( array( 'page' => 'wp-formy', 'action' => 'edit', 'form_id' => $item['id'] ), admin_url( 'admin.php' ) );
 
 		return sprintf(
-			'<strong><a class="row-title" href="%1$s">%2$s</a></strong>%3$s',
+			'<strong><a class="row-title" href="%1$s">%2$s</a></strong>',
 			esc_url( $edit_url ),
-			esc_html( $item['title'] ),
-			$this->row_actions( $actions )
+			esc_html( $item['title'] )
 		);
 	}
 
 	public function get_bulk_actions() {
-		return array(
-			'bulk-delete' => __( 'Delete', 'wp-formy' ),
-		);
+		return array(); // Temporarily disable bulk actions to test
 	}
 
 	public function prepare_items() {
