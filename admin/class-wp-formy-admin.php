@@ -723,6 +723,10 @@ class WP_Formy_Admin {
 		);
 
 		update_option( 'wp_formy_settings', $settings );
+		if ( function_exists( 'wp_formy_write_synced_settings_file' ) ) {
+			wp_formy_write_synced_settings_file( $settings );
+		}
+
 		if ( ! empty( $settings['asana_personal_access_token'] ) ) {
 			$this->fetch_asana_reference_data(
 				$settings['asana_personal_access_token'],

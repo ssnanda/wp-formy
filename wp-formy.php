@@ -3,7 +3,7 @@
  * Plugin Name:       WP Formy
  * Plugin URI:        https://github.com/ssnanda/wp-formy
  * Description:       A custom WordPress form builder plugin for building forms, collecting entries, and managing workflows inside WordPress.
- * Version:           0.1.12
+ * Version:           0.1.13
  * Author:            itSpector
  * Author URI:        https://itspector.com
  * Update URI:        https://github.com/ssnanda/wp-formy
@@ -18,7 +18,7 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 if ( ! defined( 'WP_FORMY_VERSION' ) ) {
-define( 'WP_FORMY_VERSION', '0.1.12' );
+define( 'WP_FORMY_VERSION', '0.1.13' );
 }
 
 if ( ! defined( 'WP_FORMY_PLUGIN_DIR' ) ) {
@@ -31,6 +31,10 @@ if ( ! defined( 'WP_FORMY_PLUGIN_URL' ) ) {
 
 if ( ! defined( 'WP_FORMY_PLUGIN_BASENAME' ) ) {
 	define( 'WP_FORMY_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
+}
+
+if ( ! defined( 'WP_FORMY_SYNCED_SETTINGS_FILE' ) ) {
+	define( 'WP_FORMY_SYNCED_SETTINGS_FILE', WP_FORMY_PLUGIN_DIR . 'config/synced-settings.json' );
 }
 
 if ( ! function_exists( 'wp_formy_get_settings_defaults' ) ) {
@@ -71,7 +75,86 @@ if ( ! function_exists( 'wp_formy_get_settings' ) ) {
 			$saved_settings = array();
 		}
 
-		return wp_parse_args( $saved_settings, wp_formy_get_settings_defaults() );
+		$file_settings = wp_formy_read_synced_settings_file();
+		if ( ! is_array( $file_settings ) ) {
+			$file_settings = array();
+		}
+
+		return wp_parse_args(
+			array_merge( $saved_settings, $file_settings ),
+			wp_formy_get_settings_defaults()
+		);
+	}
+}
+
+if ( ! function_exists( 'wp_formy_get_synced_setting_keys' ) ) {
+	function wp_formy_get_synced_setting_keys() {
+		return array(
+			'honeypot_enabled',
+			'spam_challenge_provider',
+			'recaptcha_site_key',
+			'hcaptcha_site_key',
+			'turnstile_site_key',
+			'asana_enabled',
+			'asana_workspace_gid',
+			'asana_project_gid',
+			'stripe_mode',
+			'stripe_publishable_key',
+		);
+	}
+}
+
+if ( ! function_exists( 'wp_formy_read_synced_settings_file' ) ) {
+	function wp_formy_read_synced_settings_file() {
+		if ( ! file_exists( WP_FORMY_SYNCED_SETTINGS_FILE ) || ! is_readable( WP_FORMY_SYNCED_SETTINGS_FILE ) ) {
+			return array();
+		}
+
+		$raw_settings = file_get_contents( WP_FORMY_SYNCED_SETTINGS_FILE );
+		if ( false === $raw_settings || '' === trim( $raw_settings ) ) {
+			return array();
+		}
+
+		$decoded = json_decode( $raw_settings, true );
+		if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $decoded ) ) {
+			return array();
+		}
+
+		$synced = array();
+		foreach ( wp_formy_get_synced_setting_keys() as $key ) {
+			if ( array_key_exists( $key, $decoded ) ) {
+				$synced[ $key ] = $decoded[ $key ];
+			}
+		}
+
+		return $synced;
+	}
+}
+
+if ( ! function_exists( 'wp_formy_write_synced_settings_file' ) ) {
+	function wp_formy_write_synced_settings_file( $settings ) {
+		if ( ! is_array( $settings ) ) {
+			return false;
+		}
+
+		$directory = dirname( WP_FORMY_SYNCED_SETTINGS_FILE );
+		if ( ! file_exists( $directory ) ) {
+			wp_mkdir_p( $directory );
+		}
+
+		$synced_settings = array();
+		foreach ( wp_formy_get_synced_setting_keys() as $key ) {
+			if ( array_key_exists( $key, $settings ) ) {
+				$synced_settings[ $key ] = $settings[ $key ];
+			}
+		}
+
+		$encoded = wp_json_encode( $synced_settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		if ( false === $encoded ) {
+			return false;
+		}
+
+		return false !== file_put_contents( WP_FORMY_SYNCED_SETTINGS_FILE, $encoded . PHP_EOL, LOCK_EX );
 	}
 }
 
