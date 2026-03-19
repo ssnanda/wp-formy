@@ -785,6 +785,12 @@ class WP_Formy {
 			<?php endif; ?>
 
 			<?php if ( ! $submission_result['success'] ) : ?>
+				<?php if ( $challenge_enabled ) : ?>
+					<div class="wp-formy-challenge-wrap wp-formy-challenge-<?php echo esc_attr( $challenge_config['provider'] ); ?>" style="margin:0 0 24px;">
+						<div class="<?php echo esc_attr( $challenge_config['container_class'] ); ?>" data-sitekey="<?php echo esc_attr( $challenge_config['site_key'] ); ?>"></div>
+					</div>
+				<?php endif; ?>
+
 				<?php foreach ( $fields as $field ) : ?>
 					<?php
 					if ( ! is_array( $field ) ) {
@@ -915,12 +921,6 @@ class WP_Formy {
 						<?php endif; ?>
 					</div>
 				<?php endforeach; ?>
-
-				<?php if ( $challenge_enabled ) : ?>
-					<div class="wp-formy-challenge-wrap wp-formy-challenge-<?php echo esc_attr( $challenge_config['provider'] ); ?>" style="margin:24px 0 12px;">
-						<div class="<?php echo esc_attr( $challenge_config['container_class'] ); ?>" data-sitekey="<?php echo esc_attr( $challenge_config['site_key'] ); ?>"></div>
-					</div>
-				<?php endif; ?>
 
 				<div class="wp-formy-submit" style="text-align:<?php echo esc_attr( ! empty( $settings['button_alignment'] ) ? $settings['button_alignment'] : 'left' ); ?>;">
 					<button type="submit" style="background:var(--wp-formy-primary);color:#fff;border:0;border-radius:calc(var(--wp-formy-radius) - 4px);padding:12px 20px;font-weight:700;"><?php echo esc_html( $submit_text ); ?></button>
