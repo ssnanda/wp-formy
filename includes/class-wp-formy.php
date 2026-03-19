@@ -12,6 +12,7 @@ class WP_Formy {
 		$this->load_dependencies();
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
+		add_action( 'init', array( $this, 'schedule_recurring_events' ) );
 	}
 
 	private function load_dependencies() {
@@ -29,6 +30,14 @@ class WP_Formy {
 
 		add_action( 'wp_ajax_wpf_save_form', array( $plugin_admin, 'ajax_save_form' ) );
 		add_action( 'wp_ajax_wpf_import_form', array( $plugin_admin, 'ajax_import_form' ) );
+		add_action( 'wp_ajax_wpf_sync_asana_reference_data', array( $plugin_admin, 'ajax_sync_asana_reference_data' ) );
+		add_action( 'wp_formy_daily_asana_sync', array( $plugin_admin, 'sync_asana_reference_data' ) );
+	}
+
+	public function schedule_recurring_events() {
+		if ( ! wp_next_scheduled( 'wp_formy_daily_asana_sync' ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', 'wp_formy_daily_asana_sync' );
+		}
 	}
 
 	private function define_public_hooks() {
@@ -66,6 +75,16 @@ class WP_Formy {
 			'input_border_color'    => '#d7dce3',
 			'border_radius'         => 16,
 		);
+	}
+
+	private function is_honeypot_enabled() {
+		$plugin_settings = function_exists( 'wp_formy_get_settings' ) ? wp_formy_get_settings() : array();
+
+		return ! empty( $plugin_settings['honeypot_enabled'] ) && '1' === (string) $plugin_settings['honeypot_enabled'];
+	}
+
+	private function get_honeypot_field_name( $form_id ) {
+		return 'wpf_hp_' . absint( $form_id );
 	}
 
 	private function get_forms_table() {
@@ -384,6 +403,19 @@ class WP_Formy {
 			);
 		}
 
+		if ( $this->is_honeypot_enabled() ) {
+			$honeypot_field_name  = $this->get_honeypot_field_name( $form_id );
+			$honeypot_field_value = isset( $_POST[ $honeypot_field_name ] ) ? sanitize_text_field( wp_unslash( $_POST[ $honeypot_field_name ] ) ) : '';
+
+			if ( '' !== $honeypot_field_value ) {
+				return array(
+					'submitted' => true,
+					'success'   => false,
+					'message'   => __( 'Spam check failed. Please try again.', 'wp-formy' ),
+				);
+			}
+		}
+
 		$lead_data = array();
 		$errors    = array();
 
@@ -592,6 +624,20 @@ class WP_Formy {
 		<form class="wp-formy-frontend-form wp-formy-theme-<?php echo esc_attr( $form_theme ); ?>" method="post" enctype="multipart/form-data" style="<?php echo esc_attr( $wrapper_style ); ?>padding:24px;border-radius:var(--wp-formy-radius);background:var(--wp-formy-bg);border:1px solid #dfe6ee;box-shadow:0 20px 45px rgba(18,52,77,.08);">
 			<input type="hidden" name="wpf_form_id" value="<?php echo esc_attr( $form_id ); ?>">
 			<?php wp_nonce_field( 'wpf_submit_form_' . $form_id, 'wpf_form_nonce' ); ?>
+			<?php if ( $this->is_honeypot_enabled() ) : ?>
+				<?php $honeypot_field_name = $this->get_honeypot_field_name( $form_id ); ?>
+				<div class="wp-formy-honeypot" aria-hidden="true" style="position:absolute !important;left:-9999px !important;top:auto !important;width:1px !important;height:1px !important;overflow:hidden !important;">
+					<label for="<?php echo esc_attr( $honeypot_field_name ); ?>"><?php esc_html_e( 'Leave this field empty', 'wp-formy' ); ?></label>
+					<input
+						type="text"
+						id="<?php echo esc_attr( $honeypot_field_name ); ?>"
+						name="<?php echo esc_attr( $honeypot_field_name ); ?>"
+						value=""
+						tabindex="-1"
+						autocomplete="off"
+					>
+				</div>
+			<?php endif; ?>
 
 			<div class="wp-formy-form-title">
 				<h3><?php echo esc_html( $form->title ); ?></h3>

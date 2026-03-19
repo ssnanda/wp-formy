@@ -93,17 +93,222 @@ $delete_url = wp_nonce_url(
 ?>
 
 <div class="wrap">
-	<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-		<div>
-			<a href="<?php echo esc_url( $back_url ); ?>" style="text-decoration:none;">&larr; <?php esc_html_e( 'Back to Leads', 'wp-formy' ); ?></a>
-			<h1 style="margin-top:10px;"><?php echo esc_html( 'Entry #' . $lead_id ); ?></h1>
-		</div>
-		<div class="wp-formy-inline-actions">
-			<a class="button" href="<?php echo esc_url( $toggle_url ); ?>"><?php echo esc_html( $toggle_label ); ?></a>
-			<?php if ( $form_edit_url ) : ?>
-				<a class="button" href="<?php echo esc_url( $form_edit_url ); ?>"><?php esc_html_e( 'Edit Form', 'wp-formy' ); ?></a>
-			<?php endif; ?>
-			<a class="button button-link-delete" href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm('Delete this lead?');"><?php esc_html_e( 'Delete', 'wp-formy' ); ?></a>
+	<style>
+		.wp-formy-entry-shell {
+			margin-top: 18px;
+		}
+
+		.wp-formy-entry-hero {
+			display: flex;
+			align-items: flex-start;
+			justify-content: space-between;
+			gap: 20px;
+			padding: 28px 30px;
+			background: linear-gradient(135deg, #fff 0%, #f8fafc 50%, #eef7ff 100%);
+			border: 1px solid #dde7f2;
+			border-radius: 26px;
+			box-shadow: 0 22px 48px rgba(15, 23, 42, 0.06);
+			margin-bottom: 18px;
+		}
+
+		.wp-formy-entry-backlink {
+			display: inline-flex;
+			align-items: center;
+			gap: 8px;
+			text-decoration: none;
+			color: #475569;
+			font-weight: 600;
+		}
+
+		.wp-formy-entry-hero h1 {
+			margin: 14px 0 8px;
+			font-size: 30px;
+			line-height: 1.1;
+		}
+
+		.wp-formy-entry-hero p {
+			margin: 0;
+			color: #64748b;
+			max-width: 740px;
+			font-size: 15px;
+			line-height: 1.7;
+		}
+
+		.wp-formy-entry-hero-actions {
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: flex-end;
+			gap: 10px;
+		}
+
+		.wp-formy-entry-layout {
+			display: grid;
+			grid-template-columns: minmax(0, 1.65fr) minmax(320px, .85fr);
+			gap: 18px;
+		}
+
+		.wp-formy-entry-secondary {
+			display: flex;
+			flex-direction: column;
+			gap: 18px;
+		}
+
+		.wp-formy-lead-card {
+			background: #fff;
+			border: 1px solid #e4ebf3;
+			border-radius: 24px;
+			padding: 24px;
+			box-shadow: 0 18px 42px rgba(15, 23, 42, 0.05);
+		}
+
+		.wp-formy-lead-card h2,
+		.wp-formy-lead-card h3 {
+			margin-top: 0;
+		}
+
+		.wp-formy-lead-meta-table {
+			width: 100%;
+			border-collapse: collapse;
+		}
+
+		.wp-formy-lead-meta-table th,
+		.wp-formy-lead-meta-table td {
+			padding: 16px 0;
+			border-bottom: 1px solid #eef2f7;
+			vertical-align: top;
+		}
+
+		.wp-formy-lead-meta-table tr:last-child th,
+		.wp-formy-lead-meta-table tr:last-child td {
+			border-bottom: 0;
+		}
+
+		.wp-formy-lead-meta-table th {
+			color: #334155;
+			font-weight: 700;
+		}
+
+		.wp-formy-lead-meta-table td input[type="text"],
+		.wp-formy-lead-meta-table td input[type="email"],
+		.wp-formy-lead-meta-table td input[type="url"],
+		.wp-formy-lead-meta-table td input[type="number"],
+		.wp-formy-lead-meta-table td input[type="tel"],
+		.wp-formy-lead-meta-table td input[type="date"],
+		.wp-formy-lead-meta-table td input[type="file"],
+		.wp-formy-lead-meta-table td textarea,
+		.wp-formy-lead-meta-table td select {
+			width: 100%;
+			border: 1px solid #d5dee8;
+			border-radius: 14px;
+			padding: 11px 13px;
+			background: #fff;
+			box-sizing: border-box;
+		}
+
+		.wp-formy-lead-meta-table td textarea {
+			min-height: 120px;
+			resize: vertical;
+		}
+
+		.wp-formy-entry-status-row {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			flex-wrap: wrap;
+			margin-top: 10px;
+		}
+
+		.wp-formy-status-badge {
+			display: inline-flex;
+			align-items: center;
+			padding: 6px 10px;
+			border-radius: 999px;
+			font-size: 12px;
+			font-weight: 700;
+		}
+
+		.wp-formy-status-badge.read {
+			background: #eff6ff;
+			color: #1d4ed8;
+		}
+
+		.wp-formy-status-badge.unread {
+			background: #fef3c7;
+			color: #92400e;
+		}
+
+		.wp-formy-entry-note {
+			color: #64748b;
+			font-size: 14px;
+			line-height: 1.6;
+		}
+
+		.wp-formy-note-form textarea {
+			width: 100%;
+			min-height: 110px;
+			border: 1px solid #d5dee8;
+			border-radius: 16px;
+			padding: 12px 14px;
+			box-sizing: border-box;
+			resize: vertical;
+		}
+
+		.wp-formy-note-list {
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+			margin-top: 18px;
+		}
+
+		.wp-formy-note-item {
+			padding: 16px 18px;
+			border: 1px solid #e5edf5;
+			border-radius: 18px;
+			background: #fbfdff;
+		}
+
+		.wp-formy-note-item strong {
+			display: block;
+			margin-bottom: 6px;
+			color: #0f172a;
+		}
+
+		.wp-formy-note-item span {
+			display: block;
+			margin-top: 8px;
+			color: #64748b;
+			font-size: 12px;
+		}
+
+		@media (max-width: 1100px) {
+			.wp-formy-entry-hero {
+				flex-direction: column;
+			}
+
+			.wp-formy-entry-layout {
+				grid-template-columns: 1fr;
+			}
+		}
+	</style>
+
+	<div class="wp-formy-entry-shell">
+		<div class="wp-formy-entry-hero">
+			<div>
+				<a class="wp-formy-entry-backlink" href="<?php echo esc_url( $back_url ); ?>">&larr; <?php esc_html_e( 'Back to Entries', 'wp-formy' ); ?></a>
+				<h1><?php echo esc_html( 'Entry #' . $lead_id ); ?></h1>
+				<p><?php esc_html_e( 'Update saved values, replace uploaded files, review the submission context, and leave internal notes without losing track of the linked form.', 'wp-formy' ); ?></p>
+				<div class="wp-formy-entry-status-row">
+					<span class="wp-formy-status-badge <?php echo esc_attr( $lead->status ); ?>"><?php echo esc_html( ucfirst( $lead->status ) ); ?></span>
+					<span class="wp-formy-entry-note"><?php echo esc_html( $lead->form_title ? $lead->form_title : __( '(Form deleted)', 'wp-formy' ) ); ?></span>
+				</div>
+			</div>
+			<div class="wp-formy-entry-hero-actions">
+				<a class="button" href="<?php echo esc_url( $toggle_url ); ?>"><?php echo esc_html( $toggle_label ); ?></a>
+				<?php if ( $form_edit_url ) : ?>
+					<a class="button" href="<?php echo esc_url( $form_edit_url ); ?>"><?php esc_html_e( 'Edit Form', 'wp-formy' ); ?></a>
+				<?php endif; ?>
+				<a class="button button-link-delete" href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm('Delete this lead?');"><?php esc_html_e( 'Delete', 'wp-formy' ); ?></a>
+			</div>
 		</div>
 	</div>
 
@@ -136,10 +341,10 @@ $delete_url = wp_nonce_url(
 		</div>
 	<?php endif; ?>
 
-	<div class="wp-formy-lead-grid">
+	<div class="wp-formy-entry-layout">
 		<div>
 			<div class="wp-formy-lead-card">
-				<h2 style="margin-top:0;"><?php esc_html_e( 'Entry Data', 'wp-formy' ); ?></h2>
+				<h2><?php esc_html_e( 'Entry Data', 'wp-formy' ); ?></h2>
 
 				<?php if ( $form ) : ?>
 					<form method="post" enctype="multipart/form-data">
@@ -281,7 +486,7 @@ $delete_url = wp_nonce_url(
 			</div>
 
 			<div class="wp-formy-lead-card">
-				<h2 style="margin-top:0;"><?php esc_html_e( 'Entry Info', 'wp-formy' ); ?></h2>
+				<h2><?php esc_html_e( 'Entry Info', 'wp-formy' ); ?></h2>
 				<table class="wp-formy-lead-meta-table">
 					<tbody>
 						<tr>
@@ -330,37 +535,40 @@ $delete_url = wp_nonce_url(
 			</div>
 		</div>
 
-		<div>
+		<div class="wp-formy-entry-secondary">
 			<div class="wp-formy-lead-card">
-				<h2 style="margin-top:0;"><?php esc_html_e( 'Notes', 'wp-formy' ); ?></h2>
+				<h2><?php esc_html_e( 'Internal Notes', 'wp-formy' ); ?></h2>
+				<p class="wp-formy-entry-note"><?php esc_html_e( 'Use notes for follow-ups, handoff context, or anything you do not want mixed into the customer-facing form data.', 'wp-formy' ); ?></p>
 
-				<form method="post" style="margin-bottom:16px;">
+				<form method="post" class="wp-formy-note-form" style="margin-bottom:16px;">
 					<?php wp_nonce_field( 'wpf_add_lead_note_' . $lead_id ); ?>
 					<input type="hidden" name="wpf_add_note_lead_id" value="<?php echo esc_attr( $lead_id ); ?>" />
-					<textarea name="wpf_lead_note" rows="4" style="width:100%;" placeholder="<?php esc_attr_e( 'Add an internal note...', 'wp-formy' ); ?>"></textarea>
+					<textarea name="wpf_lead_note" rows="4" placeholder="<?php esc_attr_e( 'Add an internal note...', 'wp-formy' ); ?>"></textarea>
 					<p style="margin-top:10px;">
 						<button type="submit" class="button button-primary"><?php esc_html_e( 'Add Note', 'wp-formy' ); ?></button>
 					</p>
 				</form>
 
 				<?php if ( empty( $notes ) ) : ?>
-					<p><?php esc_html_e( 'No notes yet.', 'wp-formy' ); ?></p>
+					<p class="wp-formy-entry-note"><?php esc_html_e( 'No notes yet.', 'wp-formy' ); ?></p>
 				<?php else : ?>
-					<?php foreach ( $notes as $note ) : ?>
-						<div class="wp-formy-note">
-							<div style="font-size:12px;color:#666;margin-bottom:6px;">
-								<?php
-								echo esc_html(
-									wp_date(
-										get_option( 'date_format' ) . ' ' . get_option( 'time_format' ),
-										strtotime( $note->created_at )
-									)
-								);
-								?>
+					<div class="wp-formy-note-list">
+						<?php foreach ( $notes as $note ) : ?>
+							<div class="wp-formy-note-item">
+								<strong><?php echo nl2br( esc_html( $note->note ) ); ?></strong>
+								<span>
+									<?php
+									echo esc_html(
+										wp_date(
+											get_option( 'date_format' ) . ' ' . get_option( 'time_format' ),
+											strtotime( $note->created_at )
+										)
+									);
+									?>
+								</span>
 							</div>
-							<div><?php echo nl2br( esc_html( $note->note ) ); ?></div>
-						</div>
-					<?php endforeach; ?>
+						<?php endforeach; ?>
+					</div>
 				<?php endif; ?>
 			</div>
 		</div>

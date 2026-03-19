@@ -148,10 +148,10 @@ class WP_Formy_Leads_List_Table extends WP_List_Table {
 	protected function column_default( $item, $column_name ) {
 		switch ( $column_name ) {
 			case 'id':
-				return 'Entry #' . absint( $item['id'] );
+				return '<span class="wp-formy-entry-id-chip">#' . absint( $item['id'] ) . '</span>';
 
 			case 'form_title':
-				return esc_html( $item['form_title'] ? $item['form_title'] : __( '(Form deleted)', 'wp-formy' ) );
+				return '<div class="wp-formy-form-title-cell"><strong>' . esc_html( $item['form_title'] ? $item['form_title'] : __( '(Form deleted)', 'wp-formy' ) ) . '</strong><span>' . esc_html__( 'Source form', 'wp-formy' ) . '</span></div>';
 
 			case 'summary':
 				$data  = json_decode( $item['lead_data'], true );
@@ -215,7 +215,7 @@ class WP_Formy_Leads_List_Table extends WP_List_Table {
 					'wpf_lead_action_' . absint( $item['id'] )
 				);
 
-				return '<div class="wp-formy-inline-actions"><a class="button button-small" href="' . esc_url( $detail_url ) . '">' . esc_html__( 'Edit', 'wp-formy' ) . '</a><a class="button button-small" href="' . esc_url( $toggle_url ) . '">' . esc_html( $toggle_label ) . '</a></div>';
+				return '<div class="wp-formy-inline-actions"><a class="button button-small" href="' . esc_url( $detail_url ) . '">' . esc_html__( 'Open', 'wp-formy' ) . '</a><a class="button button-small" href="' . esc_url( $toggle_url ) . '">' . esc_html( $toggle_label ) . '</a></div>';
 		}
 
 		return '';

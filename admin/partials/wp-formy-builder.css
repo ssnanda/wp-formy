@@ -392,21 +392,66 @@
 
 .wpf-field-resize-handle {
 	position: absolute;
-	right: 6px;
+	right: 8px;
 	top: 50%;
 	transform: translateY(-50%);
-	width: 8px;
-	height: 42px;
+	width: 20px;
+	height: 56px;
 	border-radius: 999px;
-	background: linear-gradient(180deg, #cfe0f1 0%, #7aa7d3 100%);
+	border: 1px solid #bfd6eb;
+	background: linear-gradient(180deg, #f8fbff 0%, #dbeafb 100%);
 	cursor: ew-resize;
 	opacity: 0;
 	transition: opacity 0.2s ease;
+	padding: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	touch-action: none;
+	box-shadow: 0 8px 18px rgba(59, 130, 246, 0.16);
+}
+
+.wpf-field-resize-handle span {
+	display: block;
+	width: 4px;
+	height: 28px;
+	border-radius: 999px;
+	background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
 }
 
 .wpf-canvas-field:hover .wpf-field-resize-handle,
 .wpf-canvas-field.active .wpf-field-resize-handle {
 	opacity: 1;
+}
+
+.wpf-field-width-badge {
+	position: absolute;
+	left: 14px;
+	top: -12px;
+	display: inline-flex;
+	align-items: center;
+	padding: 6px 10px;
+	border-radius: 999px;
+	background: #0f172a;
+	color: #fff;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	opacity: 0;
+	transform: translateY(4px);
+	transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.wpf-canvas-field:hover .wpf-field-width-badge,
+.wpf-canvas-field.active .wpf-field-width-badge {
+	opacity: 1;
+	transform: translateY(0);
+}
+
+body.wpf-is-resizing-field,
+body.wpf-is-resizing-field * {
+	cursor: ew-resize !important;
+	user-select: none !important;
 }
 
 .wpf-canvas-field:hover .wpf-field-actions,
@@ -490,6 +535,66 @@
 	display: block;
 }
 
+#wpf-panel-field {
+	padding: 18px;
+	background: #f8fafc;
+}
+
+.wpf-field-settings-shell {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.wpf-field-settings-header {
+	padding: 18px 18px 4px;
+}
+
+.wpf-field-settings-kicker {
+	font-size: 11px;
+	font-weight: 800;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: #64748b;
+	margin-bottom: 6px;
+}
+
+.wpf-field-settings-title {
+	font-size: 20px;
+	line-height: 1.2;
+	font-weight: 800;
+	color: #0f172a;
+}
+
+.wpf-field-settings-meta {
+	margin-top: 6px;
+	font-size: 13px;
+	color: #64748b;
+}
+
+.wpf-field-settings-card {
+	padding: 18px;
+	background: #fff;
+	border: 1px solid #e2e8f0;
+	border-radius: 18px;
+	box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+}
+
+.wpf-field-settings-card-title {
+	margin-bottom: 14px;
+	font-size: 13px;
+	font-weight: 800;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: #475569;
+}
+
+.wpf-field-settings-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 14px;
+}
+
 .wpf-inspector-subtabs {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -520,9 +625,41 @@
 	display: block;
 }
 
+.wpf-inspector-nav {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 18px 22px 0;
+	border-bottom: 1px solid #eef2f6;
+	background: #f9fbfd;
+}
+
+.wpf-inspector-nav-item {
+	border: 1px solid #dce3ea;
+	background: #fff;
+	padding: 9px 12px;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 700;
+	color: #526070;
+	cursor: pointer;
+}
+
+.wpf-inspector-nav-item.is-active,
+.wpf-inspector-nav-item:hover {
+	border-color: #0f7ac6;
+	background: #eff6ff;
+	color: #0f172a;
+}
+
 .wpf-inspector-section {
 	padding: 22px 22px 8px;
 	border-bottom: 1px solid #f3f4f6;
+	display: none;
+}
+
+.wpf-inspector-section.is-active {
+	display: block;
 }
 
 .wpf-inspector-section-title {
@@ -559,6 +696,32 @@
 .wpf-setting-row textarea {
 	min-height: 96px;
 	resize: vertical;
+}
+
+.wpf-toggle-card {
+	display: flex !important;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 0 !important;
+	padding: 14px 16px;
+	border: 1px solid #e2e8f0;
+	border-radius: 16px;
+	background: #f8fafc;
+}
+
+.wpf-toggle-card strong {
+	display: block;
+	font-size: 14px;
+	color: #0f172a;
+	margin-bottom: 4px;
+}
+
+.wpf-toggle-card small {
+	display: block;
+	font-size: 12px;
+	line-height: 1.5;
+	color: #64748b;
 }
 
 .wpf-setting-row input[type="color"] {
@@ -628,6 +791,14 @@
 .wpf-settings-menu-item:hover {
 	background: #f3f7fb;
 	color: #111827;
+}
+
+.wpf-settings-menu-item::after {
+	content: '›';
+	float: right;
+	color: #9aa4b2;
+	font-size: 16px;
+	line-height: 1;
 }
 
 .wpf-structure-drawer {
@@ -717,6 +888,10 @@
 @media (max-width: 1240px) {
 	.wpf-sidebar-right {
 		width: 360px;
+	}
+
+	.wpf-field-settings-grid {
+		grid-template-columns: 1fr;
 	}
 }
 

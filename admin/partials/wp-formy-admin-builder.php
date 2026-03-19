@@ -180,15 +180,15 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 			>
 		</div>
 
-		<div class="wpf-toolbar-right">
+			<div class="wpf-toolbar-right">
 			<div class="wpf-toolbar-dropdown">
 				<button id="wpf-form-settings-toggle" class="wpf-btn wpf-btn-secondary wpf-settings-trigger" type="button">Form Settings <span>▾</span></button>
 				<div id="wpf-form-settings-menu" class="wpf-settings-menu">
-					<button type="button" class="wpf-settings-menu-item" data-panel="notifications">Email Notification</button>
-					<button type="button" class="wpf-settings-menu-item" data-panel="confirmation">Form Confirmation</button>
-					<button type="button" class="wpf-settings-menu-item" data-panel="spam">Spam Protection</button>
-					<button type="button" class="wpf-settings-menu-item" data-panel="integrations">Integrations</button>
-					<button type="button" class="wpf-settings-menu-item" data-panel="custom-css">Custom CSS</button>
+					<button type="button" class="wpf-settings-menu-item" data-section="basics">Basics</button>
+					<button type="button" class="wpf-settings-menu-item" data-section="notifications">Email Notification</button>
+					<button type="button" class="wpf-settings-menu-item" data-section="confirmation">Form Confirmation</button>
+					<button type="button" class="wpf-settings-menu-item" data-section="integrations">Integrations</button>
+					<button type="button" class="wpf-settings-menu-item" data-section="advanced">Advanced</button>
 				</div>
 			</div>
 			<?php if ( $form_id ) : ?>
@@ -271,7 +271,14 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 						<button type="button" class="wpf-inspector-subtab" data-form-subtab="style">Style</button>
 					</div>
 					<div class="wpf-inspector-subpanel is-active" data-form-subpanel="general">
-						<div class="wpf-inspector-section">
+						<div class="wpf-inspector-nav">
+							<button type="button" class="wpf-inspector-nav-item is-active" data-settings-section-tab="basics">Basics</button>
+							<button type="button" class="wpf-inspector-nav-item" data-settings-section-tab="notifications">Notifications</button>
+							<button type="button" class="wpf-inspector-nav-item" data-settings-section-tab="confirmation">Confirmation</button>
+							<button type="button" class="wpf-inspector-nav-item" data-settings-section-tab="integrations">Integrations</button>
+							<button type="button" class="wpf-inspector-nav-item" data-settings-section-tab="advanced">Advanced</button>
+						</div>
+						<div class="wpf-inspector-section is-active" data-settings-section="basics">
 							<div class="wpf-inspector-section-title">General</div>
 							<div class="wpf-setting-row">
 								<label>Form Description</label>
@@ -290,7 +297,7 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 							</div>
 						</div>
 
-						<div class="wpf-inspector-section" data-settings-anchor="notifications">
+						<div class="wpf-inspector-section" data-settings-section="notifications">
 							<div class="wpf-inspector-section-title">Email Notification</div>
 							<div class="wpf-setting-row">
 								<label class="wpf-toggle-row">
@@ -310,7 +317,7 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 							</div>
 						</div>
 
-						<div class="wpf-inspector-section" data-settings-anchor="confirmation">
+						<div class="wpf-inspector-section" data-settings-section="confirmation">
 							<div class="wpf-inspector-section-title">Form Confirmation</div>
 							<div class="wpf-setting-row">
 								<label>Confirmation Type</label>
@@ -329,12 +336,7 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 							</div>
 						</div>
 
-						<div class="wpf-inspector-section" data-settings-anchor="spam">
-							<div class="wpf-inspector-section-title">Spam Protection</div>
-							<p class="wpf-setting-help">Honeypot and CAPTCHA providers can be managed globally on the Settings screen. This panel is reserved for per-form controls.</p>
-						</div>
-
-						<div class="wpf-inspector-section" data-settings-anchor="integrations">
+						<div class="wpf-inspector-section" data-settings-section="integrations">
 							<div class="wpf-inspector-section-title">Integrations</div>
 							<div class="wpf-setting-row">
 								<label class="wpf-toggle-row">
@@ -360,11 +362,15 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 							</div>
 						</div>
 
-						<div class="wpf-inspector-section" data-settings-anchor="custom-css">
-							<div class="wpf-inspector-section-title">Custom CSS</div>
+						<div class="wpf-inspector-section" data-settings-section="advanced">
+							<div class="wpf-inspector-section-title">Advanced</div>
 							<div class="wpf-setting-row">
-								<label>CSS</label>
+								<label>Custom CSS</label>
 								<textarea id="wpf-form-custom-css" rows="5"><?php echo esc_textarea( isset( $initial_data['schema']['settings']['custom_css'] ) ? $initial_data['schema']['settings']['custom_css'] : '' ); ?></textarea>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Spam Protection</label>
+								<p class="wpf-setting-help">Honeypot and CAPTCHA providers are managed globally on the main Settings screen. Keep form-level spam controls light here unless there is a clear need.</p>
 							</div>
 						</div>
 					</div>

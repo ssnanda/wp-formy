@@ -13,6 +13,7 @@ function initWPFormyBuilder() {
     const fieldsSearchInput = document.querySelector('.wpf-fields-search input');
     const formSettingsToggle = document.getElementById('wpf-form-settings-toggle');
     const formSettingsMenu = document.getElementById('wpf-form-settings-menu');
+    const formSectionTabs = Array.from(document.querySelectorAll('[data-settings-section-tab]'));
 
     if (!dropzone || !canvas || !fieldSettingsPanel) {
         return;
@@ -59,6 +60,7 @@ function initWPFormyBuilder() {
     let redoStack = [];
     let isRestoringHistory = false;
     let currentDropIndex = null;
+    let resizingFieldId = null;
 
     function escapeHtml(value) {
         return String(value || '')
@@ -350,6 +352,41 @@ function initWPFormyBuilder() {
         canvas.style.setProperty('--wpf-theme-radius', `${borderRadius}px`);
         canvas.style.setProperty('--wpf-theme-background', backgroundValue);
         canvas.setAttribute('data-theme', settings.form_theme || 'clean');
+    }
+
+    function getClosestFieldWidth(widthValue) {
+        const snapPoints = [25, 33, 50, 100];
+        let closest = snapPoints[0];
+
+        snapPoints.forEach((snapPoint) => {
+            if (Math.abs(snapPoint - widthValue) < Math.abs(closest - widthValue)) {
+                closest = snapPoint;
+            }
+        });
+
+        return closest;
+    }
+
+    function activateFormSettingsSection(sectionName) {
+        const targetSection = sectionName || 'basics';
+        const formTab = document.querySelector('.wpf-tab[data-target="form"]');
+        const generalSubtab = document.querySelector('.wpf-inspector-subtab[data-form-subtab="general"]');
+
+        if (formTab && !formTab.classList.contains('active')) {
+            formTab.click();
+        }
+
+        if (generalSubtab && !generalSubtab.classList.contains('is-active')) {
+            generalSubtab.click();
+        }
+
+        formSectionTabs.forEach((button) => {
+            button.classList.toggle('is-active', button.dataset.settingsSectionTab === targetSection);
+        });
+
+        document.querySelectorAll('[data-settings-section]').forEach((section) => {
+            section.classList.toggle('is-active', section.dataset.settingsSection === targetSection);
+        });
     }
 
     function getDefaultField(type, defaultLabel) {
@@ -716,7 +753,10 @@ function initWPFormyBuilder() {
                 <div class="wpf-field-preview">
                     ${renderFieldPreview(field)}
                 </div>
-                <div class="wpf-field-resize-handle" title="Resize field"></div>
+                <div class="wpf-field-width-badge">${width}%</div>
+                <button class="wpf-field-resize-handle" type="button" title="Resize field width" aria-label="Resize field width">
+                    <span></span>
+                </button>
                 <div class="wpf-field-actions">
                     <button class="wpf-action-btn duplicate" type="button" title="Duplicate">⎘</button>
                     <button class="wpf-action-btn delete" type="button" title="Delete">✕</button>
@@ -771,38 +811,47 @@ function initWPFormyBuilder() {
 
             const resizeHandle = fieldEl.querySelector('.wpf-field-resize-handle');
             if (resizeHandle) {
-                resizeHandle.addEventListener('mousedown', (event) => {
+                resizeHandle.addEventListener('pointerdown', (event) => {
                     event.preventDefault();
                     event.stopPropagation();
+
+                    activeFieldId = field.id;
+                    resizingFieldId = field.id;
+                    renderCanvas();
+                    openFieldSettings(field);
 
                     const startX = event.clientX;
                     const startWidth = parseInt(field.width, 10) || 100;
                     const canvasWidth = canvas.getBoundingClientRect().width || 1;
+                    document.body.classList.add('wpf-is-resizing-field');
 
-                    function onMouseMove(moveEvent) {
+                    function onPointerMove(moveEvent) {
+                        moveEvent.preventDefault();
+
                         const deltaPercent = ((moveEvent.clientX - startX) / canvasWidth) * 100;
                         const rawWidth = startWidth + deltaPercent;
-                        const snapPoints = [25, 33, 50, 100];
-                        let closest = snapPoints[0];
+                        const closest = getClosestFieldWidth(rawWidth);
 
-                        snapPoints.forEach((snapPoint) => {
-                            if (Math.abs(snapPoint - rawWidth) < Math.abs(closest - rawWidth)) {
-                                closest = snapPoint;
-                            }
-                        });
+                        if (field.width !== closest) {
+                            field.width = closest;
+                            renderCanvas();
+                            openFieldSettings(field);
+                        }
+                    }
 
-                        field.width = closest;
+                    function onPointerUp() {
+                        resizingFieldId = null;
+                        document.body.classList.remove('wpf-is-resizing-field');
+                        window.removeEventListener('pointermove', onPointerMove);
+                        window.removeEventListener('pointerup', onPointerUp);
+                        window.removeEventListener('pointercancel', onPointerUp);
                         renderCanvas();
                     }
 
-                    function onMouseUp() {
-                        document.removeEventListener('mousemove', onMouseMove);
-                        document.removeEventListener('mouseup', onMouseUp);
-                    }
-
                     pushHistory();
-                    document.addEventListener('mousemove', onMouseMove);
-                    document.addEventListener('mouseup', onMouseUp);
+                    window.addEventListener('pointermove', onPointerMove);
+                    window.addEventListener('pointerup', onPointerUp);
+                    window.addEventListener('pointercancel', onPointerUp);
                 });
             }
         });
@@ -913,55 +962,85 @@ function initWPFormyBuilder() {
         }
 
         let html = `
-            <div class="wpf-setting-row">
-                <label>Field Label</label>
-                <input type="text" class="wpf-live-input" data-key="label" value="${escapeHtml(field.label || '')}">
-            </div>
-            <div class="wpf-setting-row">
-                <label>Placeholder text</label>
-                <input type="text" class="wpf-live-input" data-key="placeholder" value="${escapeHtml(field.placeholder || '')}">
-            </div>
-            <div class="wpf-setting-row">
-                <label>Help Text</label>
-                <input type="text" class="wpf-live-input" data-key="help_text" value="${escapeHtml(field.help_text || '')}">
-            </div>
-            <div class="wpf-setting-row">
-                <label>Default Value</label>
-                <input type="text" class="wpf-live-input" data-key="default_value" value="${escapeHtml(field.default_value || '')}">
-            </div>
-            <div class="wpf-setting-row">
-                <label>CSS Class</label>
-                <input type="text" class="wpf-live-input" data-key="css_class" value="${escapeHtml(field.css_class || '')}">
-            </div>
-            <div class="wpf-setting-row">
-                <label>Field Width</label>
-                <select class="wpf-live-select" data-key="width">
-                    <option value="100" ${parseInt(field.width, 10) === 100 ? 'selected' : ''}>100% - Full Width</option>
-                    <option value="50" ${parseInt(field.width, 10) === 50 ? 'selected' : ''}>50% - Half Width</option>
-                    <option value="33" ${parseInt(field.width, 10) === 33 ? 'selected' : ''}>33% - Third Width</option>
-                    <option value="25" ${parseInt(field.width, 10) === 25 ? 'selected' : ''}>25% - Quarter Width</option>
-                </select>
-            </div>
-            <div class="wpf-setting-row">
-                <label>
-                    <input type="checkbox" class="wpf-live-checkbox" data-key="required" ${field.required ? 'checked' : ''}>
-                    Required Field
-                </label>
+            <div class="wpf-field-settings-shell">
+                <div class="wpf-field-settings-header">
+                    <div class="wpf-field-settings-kicker">Block Settings</div>
+                    <div class="wpf-field-settings-title">${escapeHtml(field.label || formatFieldTypeLabel(field.type))}</div>
+                    <div class="wpf-field-settings-meta">${escapeHtml(formatFieldTypeLabel(field.type))}</div>
+                </div>
+
+                <div class="wpf-field-settings-card">
+                    <div class="wpf-field-settings-card-title">Content</div>
+                    <div class="wpf-field-settings-grid">
+                        <div class="wpf-setting-row">
+                            <label>Field Label</label>
+                            <input type="text" class="wpf-live-input" data-key="label" value="${escapeHtml(field.label || '')}">
+                        </div>
+                        <div class="wpf-setting-row">
+                            <label>Placeholder Text</label>
+                            <input type="text" class="wpf-live-input" data-key="placeholder" value="${escapeHtml(field.placeholder || '')}">
+                        </div>
+                        <div class="wpf-setting-row">
+                            <label>Help Text</label>
+                            <input type="text" class="wpf-live-input" data-key="help_text" value="${escapeHtml(field.help_text || '')}">
+                        </div>
+                        <div class="wpf-setting-row">
+                            <label>Default Value</label>
+                            <input type="text" class="wpf-live-input" data-key="default_value" value="${escapeHtml(field.default_value || '')}">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="wpf-field-settings-card">
+                    <div class="wpf-field-settings-card-title">Layout</div>
+                    <div class="wpf-field-settings-grid">
+                        <div class="wpf-setting-row">
+                            <label>CSS Class</label>
+                            <input type="text" class="wpf-live-input" data-key="css_class" value="${escapeHtml(field.css_class || '')}">
+                        </div>
+                        <div class="wpf-setting-row">
+                            <label>Field Width</label>
+                            <select class="wpf-live-select" data-key="width">
+                                <option value="100" ${parseInt(field.width, 10) === 100 ? 'selected' : ''}>100% - Full Width</option>
+                                <option value="50" ${parseInt(field.width, 10) === 50 ? 'selected' : ''}>50% - Half Width</option>
+                                <option value="33" ${parseInt(field.width, 10) === 33 ? 'selected' : ''}>33% - Third Width</option>
+                                <option value="25" ${parseInt(field.width, 10) === 25 ? 'selected' : ''}>25% - Quarter Width</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="wpf-setting-row">
+                        <label class="wpf-toggle-card">
+                            <span>
+                                <strong>Required Field</strong>
+                                <small>Visitors must complete this field before submitting.</small>
+                            </span>
+                            <input type="checkbox" class="wpf-live-checkbox" data-key="required" ${field.required ? 'checked' : ''}>
+                        </label>
+                    </div>
+                </div>
             </div>
         `;
 
         if (field.type === 'file') {
             html += `
-                <div class="wpf-setting-row">
-                    <label>Accepted File Types</label>
-                    <input type="text" class="wpf-live-input" data-key="accepted_file_types" value="${escapeHtml(field.accepted_file_types || '.pdf,.jpg,.jpeg,.png,.gif,.webp')}">
-                    <p class="wpf-setting-help">Example: .pdf,.jpg,.png</p>
+                <div class="wpf-field-settings-card">
+                    <div class="wpf-field-settings-card-title">Upload Rules</div>
+                    <div class="wpf-setting-row">
+                        <label>Accepted File Types</label>
+                        <input type="text" class="wpf-live-input" data-key="accepted_file_types" value="${escapeHtml(field.accepted_file_types || '.pdf,.jpg,.jpeg,.png,.gif,.webp')}">
+                        <p class="wpf-setting-help">Example: .pdf,.jpg,.png</p>
+                    </div>
                 </div>
             `;
         }
 
         if (field.type === 'select' || field.type === 'checkboxes' || field.type === 'multiple_choice') {
-            html += renderOptionsEditor(field);
+            html += `
+                <div class="wpf-field-settings-card">
+                    <div class="wpf-field-settings-card-title">Options</div>
+                    ${renderOptionsEditor(field)}
+                </div>
+            `;
         }
 
         fieldSettingsPanel.innerHTML = html;
@@ -981,6 +1060,10 @@ function initWPFormyBuilder() {
 
                 field[e.target.dataset.key] = e.target.value;
                 renderCanvas();
+                const titleNode = fieldSettingsPanel.querySelector('.wpf-field-settings-title');
+                if (titleNode && e.target.dataset.key === 'label') {
+                    titleNode.textContent = e.target.value || formatFieldTypeLabel(field.type);
+                }
             });
         });
 
@@ -1227,24 +1310,18 @@ function initWPFormyBuilder() {
         formSettingsMenu.querySelectorAll('.wpf-settings-menu-item').forEach((button) => {
             button.addEventListener('click', () => {
                 formSettingsMenu.classList.remove('is-open');
-                const formTab = document.querySelector('.wpf-tab[data-target="form"]');
-                const generalSubtab = document.querySelector('.wpf-inspector-subtab[data-form-subtab="general"]');
-
-                if (formTab) {
-                    formTab.click();
-                }
-
-                if (generalSubtab) {
-                    generalSubtab.click();
-                }
-
-                const section = document.querySelector(`[data-settings-anchor="${button.dataset.panel}"]`);
-                if (section) {
-                    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
+                activateFormSettingsSection(button.dataset.section || 'basics');
             });
         });
     }
+
+    formSectionTabs.forEach((button) => {
+        button.addEventListener('click', () => {
+            activateFormSettingsSection(button.dataset.settingsSectionTab || 'basics');
+        });
+    });
+
+    activateFormSettingsSection('basics');
 
     if (undoBtn) {
         undoBtn.addEventListener('click', (e) => {

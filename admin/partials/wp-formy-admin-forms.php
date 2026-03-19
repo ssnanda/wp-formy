@@ -7,6 +7,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+global $wpdb;
+
 $forms_list_table = new WP_Formy_Forms_List_Table();
 $forms_list_table->process_bulk_action();
 $forms_list_table->prepare_items();
@@ -18,12 +20,94 @@ $add_new_url = add_query_arg(
 	),
 	admin_url( 'admin.php' )
 );
+
+$stats = array(
+	'total'      => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}formy_forms WHERE status IN ('published','draft')" ),
+	'published'  => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}formy_forms WHERE status = 'published'" ),
+	'draft'      => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}formy_forms WHERE status = 'draft'" ),
+	'deleted'    => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}formy_forms WHERE status = 'deleted'" ),
+);
 ?>
 
 <div class="wrap">
 	<style>
+		.wp-formy-admin-shell {
+			margin-top: 18px;
+		}
+
+		.wp-formy-admin-hero {
+			display: flex;
+			align-items: flex-start;
+			justify-content: space-between;
+			gap: 20px;
+			padding: 28px 30px;
+			background: linear-gradient(135deg, #fff 0%, #f7fafc 48%, #eef7ff 100%);
+			border: 1px solid #dde7f2;
+			border-radius: 26px;
+			box-shadow: 0 22px 48px rgba(15, 23, 42, 0.06);
+		}
+
+		.wp-formy-admin-hero h1 {
+			margin: 0 0 10px;
+			font-size: 32px;
+			line-height: 1.1;
+		}
+
+		.wp-formy-admin-hero p {
+			margin: 0;
+			max-width: 700px;
+			color: #5f6b7a;
+			font-size: 15px;
+			line-height: 1.7;
+		}
+
+		.wp-formy-admin-actions {
+			display: flex;
+			gap: 10px;
+			flex-wrap: wrap;
+			justify-content: flex-end;
+		}
+
+		.wp-formy-stats-grid {
+			display: grid;
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+			gap: 14px;
+			margin: 18px 0 22px;
+		}
+
+		.wp-formy-stat-card {
+			padding: 18px 20px;
+			background: #fff;
+			border: 1px solid #e4ebf3;
+			border-radius: 20px;
+			box-shadow: 0 10px 26px rgba(15, 23, 42, 0.04);
+		}
+
+		.wp-formy-stat-card strong {
+			display: block;
+			font-size: 28px;
+			line-height: 1;
+			color: #0f172a;
+			margin-bottom: 8px;
+		}
+
+		.wp-formy-stat-card span {
+			color: #64748b;
+			font-weight: 600;
+		}
+
+		.wp-formy-list-shell {
+			margin-top: 8px;
+			padding: 20px;
+			background: #fff;
+			border: 1px solid #e4ebf3;
+			border-radius: 24px;
+			box-shadow: 0 18px 42px rgba(15, 23, 42, 0.05);
+		}
+
 		#forms-filter .wp-list-table {
 			table-layout: fixed;
+			border: 0;
 		}
 
 		#forms-filter .column-cb {
@@ -48,11 +132,11 @@ $add_new_url = add_query_arg(
 		}
 
 		#forms-filter .column-status {
-			width: 10%;
+			width: 11%;
 		}
 
 		#forms-filter .column-actions {
-			width: 33%;
+			width: 28%;
 		}
 
 		#forms-filter .column-actions .wp-formy-inline-actions {
@@ -73,6 +157,86 @@ $add_new_url = add_query_arg(
 			white-space: normal;
 		}
 
+		#forms-filter .wp-list-table thead th,
+		#forms-filter .wp-list-table tfoot th {
+			padding-top: 14px;
+			padding-bottom: 14px;
+			background: #f8fafc;
+		}
+
+		#forms-filter .wp-list-table tbody td {
+			padding-top: 16px;
+			padding-bottom: 16px;
+			vertical-align: middle;
+		}
+
+		#forms-filter .wp-list-table tbody tr {
+			transition: background 0.16s ease;
+		}
+
+		#forms-filter .wp-list-table tbody tr:hover {
+			background: #fbfdff;
+		}
+
+		.wp-formy-form-title-cell {
+			display: flex;
+			flex-direction: column;
+			gap: 4px;
+		}
+
+		.wp-formy-form-title-cell strong {
+			font-size: 15px;
+			color: #0f172a;
+		}
+
+		.wp-formy-form-title-cell span {
+			font-size: 12px;
+			color: #64748b;
+		}
+
+		.wp-formy-shortcode-chip {
+			display: inline-flex;
+			padding: 8px 10px;
+			border-radius: 10px;
+			background: #f8fafc;
+			border: 1px solid #e2e8f0;
+			font-size: 12px;
+		}
+
+		.wp-formy-status-badge {
+			display: inline-flex;
+			align-items: center;
+			padding: 6px 10px;
+			border-radius: 999px;
+			font-size: 12px;
+			font-weight: 700;
+		}
+
+		.wp-formy-status-badge.is-published {
+			background: #ecfdf3;
+			color: #166534;
+		}
+
+		.wp-formy-status-badge.is-draft {
+			background: #f1f5f9;
+			color: #475569;
+		}
+
+		.wp-formy-status-badge.is-deleted {
+			background: #fef2f2;
+			color: #b91c1c;
+		}
+
+		.wp-formy-form-row.is-deleted {
+			opacity: 0.76;
+		}
+
+		.wp-formy-toolbar-note {
+			margin: 14px 0 0;
+			color: #64748b;
+			font-size: 13px;
+		}
+
 		@media (max-width: 1280px) {
 			#forms-filter .column-actions {
 				width: 36%;
@@ -82,14 +246,38 @@ $add_new_url = add_query_arg(
 				width: 16%;
 			}
 		}
+
+		@media (max-width: 1100px) {
+			.wp-formy-admin-hero {
+				flex-direction: column;
+			}
+
+			.wp-formy-stats-grid {
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+			}
+		}
 	</style>
 
-	<h1 class="wp-heading-inline"><?php esc_html_e( 'Forms', 'wp-formy' ); ?></h1>
-	<a href="<?php echo esc_url( $add_new_url ); ?>" class="page-title-action"><?php esc_html_e( 'Add New Form', 'wp-formy' ); ?></a>
-	<a href="#" id="wpf-import-form-btn" class="page-title-action"><?php esc_html_e( 'Import Form', 'wp-formy' ); ?></a>
-	<a href="#" id="wpf-export-form-btn" class="page-title-action"><?php esc_html_e( 'Export Form', 'wp-formy' ); ?></a>
-	<input type="file" id="wpf-import-file" accept=".json" style="display:none;" />
-	<hr class="wp-header-end">
+	<div class="wp-formy-admin-shell">
+		<div class="wp-formy-admin-hero">
+			<div>
+				<h1><?php esc_html_e( 'Forms', 'wp-formy' ); ?></h1>
+				<p><?php esc_html_e( 'Build, publish, preview, duplicate, export, and keep your form library organized from one place.', 'wp-formy' ); ?></p>
+			</div>
+			<div class="wp-formy-admin-actions">
+				<a href="<?php echo esc_url( $add_new_url ); ?>" class="button button-primary"><?php esc_html_e( 'Add New Form', 'wp-formy' ); ?></a>
+				<a href="#" id="wpf-import-form-btn" class="button"><?php esc_html_e( 'Import Form', 'wp-formy' ); ?></a>
+				<a href="#" id="wpf-export-form-btn" class="button"><?php esc_html_e( 'Export Form', 'wp-formy' ); ?></a>
+			</div>
+		</div>
+		<div class="wp-formy-stats-grid">
+			<div class="wp-formy-stat-card"><strong><?php echo esc_html( $stats['total'] ); ?></strong><span><?php esc_html_e( 'Active Forms', 'wp-formy' ); ?></span></div>
+			<div class="wp-formy-stat-card"><strong><?php echo esc_html( $stats['published'] ); ?></strong><span><?php esc_html_e( 'Published', 'wp-formy' ); ?></span></div>
+			<div class="wp-formy-stat-card"><strong><?php echo esc_html( $stats['draft'] ); ?></strong><span><?php esc_html_e( 'Drafts', 'wp-formy' ); ?></span></div>
+			<div class="wp-formy-stat-card"><strong><?php echo esc_html( $stats['deleted'] ); ?></strong><span><?php esc_html_e( 'Deleted', 'wp-formy' ); ?></span></div>
+		</div>
+		<input type="file" id="wpf-import-file" accept=".json" style="display:none;" />
+	</div>
 
 	<?php if ( isset( $_GET['trashed'] ) ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Form moved to deleted.', 'wp-formy' ); ?></p></div>
@@ -99,13 +287,16 @@ $add_new_url = add_query_arg(
 		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Form restored.', 'wp-formy' ); ?></p></div>
 	<?php endif; ?>
 
-	<form id="forms-filter" method="get">
-		<input type="hidden" name="page" value="wp-formy" />
-		<?php
-		$forms_list_table->search_box( __( 'Search Forms', 'wp-formy' ), 'search_id' );
-		$forms_list_table->display();
-		?>
-	</form>
+	<div class="wp-formy-list-shell">
+		<form id="forms-filter" method="get">
+			<input type="hidden" name="page" value="wp-formy" />
+			<?php
+			$forms_list_table->search_box( __( 'Search Forms', 'wp-formy' ), 'search_id' );
+			$forms_list_table->display();
+			?>
+		</form>
+		<p class="wp-formy-toolbar-note"><?php esc_html_e( 'Tip: click any active row to jump straight into the builder.', 'wp-formy' ); ?></p>
+	</div>
 </div>
 
 <script>

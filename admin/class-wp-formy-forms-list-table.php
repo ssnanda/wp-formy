@@ -80,7 +80,7 @@ class WP_Formy_Forms_List_Table extends WP_List_Table {
 	protected function column_default( $item, $column_name ) {
 		switch ( $column_name ) {
 			case 'shortcode':
-				return '<code>[wp_formy id="' . absint( $item['id'] ) . '"]</code>';
+				return '<code class="wp-formy-shortcode-chip">[wp_formy id="' . absint( $item['id'] ) . '"]</code>';
 
 			case 'entries':
 				$count = isset( $item['entries_count'] ) ? intval( $item['entries_count'] ) : 0;
@@ -104,13 +104,7 @@ class WP_Formy_Forms_List_Table extends WP_List_Table {
 
 			case 'status':
 				$status = sanitize_text_field( $item['status'] );
-				$colors = array(
-					'published' => '#1e7e34',
-					'draft'     => '#646970',
-					'deleted'   => '#b32d2e',
-				);
-				$color  = isset( $colors[ $status ] ) ? $colors[ $status ] : '#646970';
-				return "<span style='color: {$color}; font-weight: 600;'>" . esc_html( ucfirst( $status ) ) . '</span>';
+				return '<span class="wp-formy-status-badge ' . esc_attr( 'is-' . $status ) . '">' . esc_html( ucfirst( $status ) ) . '</span>';
 
 			case 'actions':
 				return $this->render_actions_column( $item );
@@ -128,9 +122,12 @@ class WP_Formy_Forms_List_Table extends WP_List_Table {
 	}
 
 	protected function column_title( $item ) {
+		$status_label = isset( $item['status'] ) ? sanitize_text_field( ucfirst( $item['status'] ) ) : __( 'Draft', 'wp-formy' );
+
 		return sprintf(
-			'<strong>%1$s</strong>',
-			esc_html( $item['title'] )
+			'<div class="wp-formy-form-title-cell"><strong>%1$s</strong><span>%2$s</span></div>',
+			esc_html( $item['title'] ),
+			esc_html( $status_label )
 		);
 	}
 

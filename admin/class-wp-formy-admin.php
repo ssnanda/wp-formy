@@ -2,6 +2,285 @@
 
 class WP_Formy_Admin {
 
+	private function get_repository_url() {
+		return 'https://github.com/ssnanda/wp-formy';
+	}
+
+	private function get_releases_url() {
+		return $this->get_repository_url() . '/releases';
+	}
+
+	private function get_latest_release_api_url() {
+		return 'https://api.github.com/repos/ssnanda/wp-formy/releases/latest';
+	}
+
+	private function get_update_cache_key() {
+		return 'wp_formy_latest_release_info';
+	}
+
+	private function clear_update_cache() {
+		delete_transient( $this->get_update_cache_key() );
+	}
+
+	private function fetch_latest_release_info( $force_refresh = false ) {
+		$cache_key = $this->get_update_cache_key();
+
+		if ( ! $force_refresh ) {
+			$cached = get_transient( $cache_key );
+			if ( is_array( $cached ) && ! empty( $cached['version'] ) ) {
+				return $cached;
+			}
+		}
+
+		$response = wp_remote_get(
+			$this->get_latest_release_api_url(),
+			array(
+				'timeout' => 15,
+				'headers' => array(
+					'Accept'     => 'application/vnd.github+json',
+					'User-Agent' => 'WP-Formy/' . WP_FORMY_VERSION . '; ' . home_url( '/' ),
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$response_code = wp_remote_retrieve_response_code( $response );
+		$body          = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( 200 !== (int) $response_code || ! is_array( $body ) ) {
+			return new WP_Error( 'wp_formy_update_lookup_failed', __( 'Unable to reach the latest WP Formy release right now.', 'wp-formy' ) );
+		}
+
+		$tag_name = isset( $body['tag_name'] ) ? sanitize_text_field( (string) $body['tag_name'] ) : '';
+		$version  = ltrim( $tag_name, 'vV' );
+
+		if ( '' === $version ) {
+			return new WP_Error( 'wp_formy_update_invalid', __( 'The latest release did not include a valid version tag.', 'wp-formy' ) );
+		}
+
+		$release_info = array(
+			'version'      => $version,
+			'tag_name'     => $tag_name,
+			'name'         => isset( $body['name'] ) ? sanitize_text_field( (string) $body['name'] ) : $tag_name,
+			'published_at' => isset( $body['published_at'] ) ? sanitize_text_field( (string) $body['published_at'] ) : '',
+			'html_url'     => isset( $body['html_url'] ) ? esc_url_raw( (string) $body['html_url'] ) : $this->get_releases_url(),
+			'body'         => isset( $body['body'] ) ? wp_strip_all_tags( (string) $body['body'] ) : '',
+			'checked_at'   => current_time( 'mysql' ),
+		);
+
+		set_transient( $cache_key, $release_info, 6 * HOUR_IN_SECONDS );
+
+		return $release_info;
+	}
+
+	private function get_update_status( $force_refresh = false ) {
+		$latest_release = $this->fetch_latest_release_info( $force_refresh );
+
+		if ( is_wp_error( $latest_release ) ) {
+			return $latest_release;
+		}
+
+		$current_version = WP_FORMY_VERSION;
+		$latest_version  = isset( $latest_release['version'] ) ? $latest_release['version'] : $current_version;
+
+		return array(
+			'current_version' => $current_version,
+			'latest_version'  => $latest_version,
+			'has_update'      => version_compare( $latest_version, $current_version, '>' ),
+			'release'         => $latest_release,
+		);
+	}
+
+	private function handle_update_refresh_request() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		if ( ! isset( $_GET['wpf_refresh_updates'], $_GET['_wpnonce'] ) ) {
+			return;
+		}
+
+		check_admin_referer( 'wpf_refresh_updates' );
+
+		$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : 'wp-formy-updates';
+		$this->clear_update_cache();
+		$result = $this->get_update_status( true );
+
+		$args = array(
+			'page'            => $page,
+			'updates-checked' => '1',
+		);
+
+		if ( is_wp_error( $result ) ) {
+			$args['update-error'] = rawurlencode( $result->get_error_message() );
+		}
+
+		wp_safe_redirect(
+			add_query_arg(
+				$args,
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	private function get_asana_reference_cache() {
+		$cache = get_option(
+			'wp_formy_asana_reference_cache',
+			array(
+				'updated_at'   => '',
+				'workspaces'   => array(),
+				'projects'     => array(),
+				'workspace_gid'=> '',
+			)
+		);
+
+		return is_array( $cache ) ? $cache : array(
+			'updated_at'    => '',
+			'workspaces'    => array(),
+			'projects'      => array(),
+			'workspace_gid' => '',
+		);
+	}
+
+	private function update_asana_reference_cache( $cache ) {
+		update_option( 'wp_formy_asana_reference_cache', $cache );
+	}
+
+	private function asana_api_get( $path, $token, $query_args = array() ) {
+		$url = 'https://app.asana.com/api/1.0/' . ltrim( $path, '/' );
+
+		if ( ! empty( $query_args ) ) {
+			$url = add_query_arg( $query_args, $url );
+		}
+
+		$response = wp_remote_get(
+			$url,
+			array(
+				'timeout' => 15,
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $token,
+					'Accept'        => 'application/json',
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( $code < 200 || $code >= 300 ) {
+			$message = isset( $body['errors'][0]['message'] ) ? $body['errors'][0]['message'] : __( 'Asana request failed.', 'wp-formy' );
+			return new WP_Error( 'asana_api_error', $message );
+		}
+
+		return isset( $body['data'] ) && is_array( $body['data'] ) ? $body['data'] : array();
+	}
+
+	private function fetch_asana_reference_data( $token, $workspace_gid = '' ) {
+		$token = sanitize_text_field( (string) $token );
+		if ( '' === $token ) {
+			return new WP_Error( 'missing_token', __( 'Asana personal access token is required.', 'wp-formy' ) );
+		}
+
+		$workspaces = $this->asana_api_get( 'workspaces', $token, array( 'limit' => 100 ) );
+		if ( is_wp_error( $workspaces ) ) {
+			return $workspaces;
+		}
+
+		$formatted_workspaces = array();
+		foreach ( $workspaces as $workspace ) {
+			if ( empty( $workspace['gid'] ) || empty( $workspace['name'] ) ) {
+				continue;
+			}
+
+			$formatted_workspaces[] = array(
+				'gid'  => sanitize_text_field( (string) $workspace['gid'] ),
+				'name' => sanitize_text_field( (string) $workspace['name'] ),
+			);
+		}
+
+		$selected_workspace_gid = sanitize_text_field( (string) $workspace_gid );
+		if ( '' === $selected_workspace_gid && ! empty( $formatted_workspaces[0]['gid'] ) ) {
+			$selected_workspace_gid = $formatted_workspaces[0]['gid'];
+		}
+
+		$projects = array();
+		if ( '' !== $selected_workspace_gid ) {
+			$workspace_projects = $this->asana_api_get(
+				'workspaces/' . rawurlencode( $selected_workspace_gid ) . '/projects',
+				$token,
+				array(
+					'limit'              => 100,
+					'archived'           => 'false',
+					'opt_fields'         => 'gid,name',
+				)
+			);
+
+			if ( is_wp_error( $workspace_projects ) ) {
+				return $workspace_projects;
+			}
+
+			foreach ( $workspace_projects as $project ) {
+				if ( empty( $project['gid'] ) || empty( $project['name'] ) ) {
+					continue;
+				}
+
+				$projects[] = array(
+					'gid'  => sanitize_text_field( (string) $project['gid'] ),
+					'name' => sanitize_text_field( (string) $project['name'] ),
+				);
+			}
+		}
+
+		$cache = array(
+			'updated_at'    => current_time( 'mysql' ),
+			'workspaces'    => $formatted_workspaces,
+			'projects'      => $projects,
+			'workspace_gid' => $selected_workspace_gid,
+		);
+
+		$this->update_asana_reference_cache( $cache );
+
+		return $cache;
+	}
+
+	public function sync_asana_reference_data() {
+		$settings = $this->get_plugin_settings();
+		if ( empty( $settings['asana_personal_access_token'] ) ) {
+			return;
+		}
+
+		return $this->fetch_asana_reference_data(
+			$settings['asana_personal_access_token'],
+			isset( $settings['asana_workspace_gid'] ) ? $settings['asana_workspace_gid'] : ''
+		);
+	}
+
+	public function ajax_sync_asana_reference_data() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( __( 'Insufficient permissions.', 'wp-formy' ), 403 );
+		}
+
+		check_ajax_referer( 'wpf_sync_asana_reference_data', 'nonce' );
+
+		$token         = isset( $_POST['token'] ) ? sanitize_text_field( wp_unslash( $_POST['token'] ) ) : '';
+		$workspace_gid = isset( $_POST['workspace_gid'] ) ? sanitize_text_field( wp_unslash( $_POST['workspace_gid'] ) ) : '';
+		$result        = $this->fetch_asana_reference_data( $token, $workspace_gid );
+
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( $result->get_error_message(), 400 );
+		}
+
+		wp_send_json_success( $result );
+	}
+
 	public function get_plugin_settings() {
 		return function_exists( 'wp_formy_get_settings' ) ? wp_formy_get_settings() : array(
 			'default_notification_email'     => get_option( 'admin_email' ),
@@ -384,6 +663,10 @@ class WP_Formy_Admin {
 	public function handle_admin_actions() {
 		$page = isset( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : '';
 
+		if ( in_array( $page, array( 'wp-formy-updates', 'wp-formy-about' ), true ) ) {
+			$this->handle_update_refresh_request();
+		}
+
 		if ( 'wp-formy' === $page ) {
 			$this->handle_form_actions();
 		} elseif ( 'wp-formy-leads' === $page ) {
@@ -434,6 +717,12 @@ class WP_Formy_Admin {
 		);
 
 		update_option( 'wp_formy_settings', $settings );
+		if ( ! empty( $settings['asana_personal_access_token'] ) ) {
+			$this->fetch_asana_reference_data(
+				$settings['asana_personal_access_token'],
+				$settings['asana_workspace_gid']
+			);
+		}
 
 		wp_safe_redirect(
 			add_query_arg(
@@ -781,6 +1070,15 @@ class WP_Formy_Admin {
 
 		add_submenu_page(
 			'wp-formy',
+			__( 'Check for Updates', 'wp-formy' ),
+			__( 'Check for Updates', 'wp-formy' ),
+			'manage_options',
+			'wp-formy-updates',
+			array( $this, 'display_updates_page' )
+		);
+
+		add_submenu_page(
+			'wp-formy',
 			__( 'About', 'wp-formy' ),
 			__( 'About', 'wp-formy' ),
 			'manage_options',
@@ -939,6 +1237,7 @@ class WP_Formy_Admin {
 		$subsection = isset( $_GET['subsection'] ) ? sanitize_key( wp_unslash( $_GET['subsection'] ) ) : '';
 
 		$settings = $this->get_plugin_settings();
+		$asana_cache = $this->get_asana_reference_cache();
 		$sections = array(
 			'general'      => array(
 				'label' => __( 'General Settings', 'wp-formy' ),
@@ -1019,6 +1318,7 @@ class WP_Formy_Admin {
 				.wp-formy-settings-pill{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;background:#fff7ed;color:#c2410c;font-weight:700;font-size:12px;letter-spacing:.04em;text-transform:uppercase}
 				.wp-formy-settings-actions{margin-top:28px;display:flex;align-items:center;gap:14px}
 				.wp-formy-settings-actions .button-primary{background:#ea580c;border-color:#ea580c;padding:0 18px;min-height:42px}
+				.wp-formy-settings-inline-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}
 				@media (max-width: 1100px){
 					.wp-formy-settings-layout{grid-template-columns:1fr}
 					.wp-formy-settings-sidebar{border-right:0;border-bottom:1px solid #eceef2}
@@ -1264,18 +1564,142 @@ class WP_Formy_Admin {
 											<label for="asana_personal_access_token"><?php esc_html_e( 'Personal Access Token', 'wp-formy' ); ?></label>
 											<input name="asana_personal_access_token" id="asana_personal_access_token" type="text" value="<?php echo esc_attr( $settings['asana_personal_access_token'] ); ?>">
 											<div class="wp-formy-settings-help"><?php esc_html_e( 'Create this in Asana and keep it private. WP Formy uses it to create tasks through the Asana API.', 'wp-formy' ); ?></div>
+											<div class="wp-formy-settings-inline-actions">
+												<button type="button" class="button" id="wpf-refresh-asana-data"><?php esc_html_e( 'Refresh from Asana', 'wp-formy' ); ?></button>
+												<span id="wpf-asana-sync-status" class="wp-formy-settings-help">
+													<?php
+													if ( ! empty( $asana_cache['updated_at'] ) ) {
+														echo esc_html(
+															sprintf(
+																/* translators: %s: date/time */
+																__( 'Last synced: %s', 'wp-formy' ),
+																wp_date(
+																	get_option( 'date_format' ) . ' ' . get_option( 'time_format' ),
+																	strtotime( $asana_cache['updated_at'] )
+																)
+															)
+														);
+													} else {
+														esc_html_e( 'Not synced yet.', 'wp-formy' );
+													}
+													?>
+												</span>
+											</div>
 										</div>
 										<div class="wp-formy-settings-field">
-											<label for="asana_workspace_gid"><?php esc_html_e( 'Workspace GID', 'wp-formy' ); ?></label>
-											<input name="asana_workspace_gid" id="asana_workspace_gid" type="text" value="<?php echo esc_attr( $settings['asana_workspace_gid'] ); ?>">
-											<div class="wp-formy-settings-help"><?php esc_html_e( 'Required when creating tasks. This is the numeric Asana workspace ID.', 'wp-formy' ); ?></div>
+											<label for="asana_workspace_gid"><?php esc_html_e( 'Workspace', 'wp-formy' ); ?></label>
+											<select name="asana_workspace_gid" id="asana_workspace_gid">
+												<option value=""><?php esc_html_e( 'Select a workspace', 'wp-formy' ); ?></option>
+												<?php foreach ( $asana_cache['workspaces'] as $workspace ) : ?>
+													<option value="<?php echo esc_attr( $workspace['gid'] ); ?>" <?php selected( $settings['asana_workspace_gid'], $workspace['gid'] ); ?>><?php echo esc_html( $workspace['name'] . ' (' . $workspace['gid'] . ')' ); ?></option>
+												<?php endforeach; ?>
+											</select>
+											<div class="wp-formy-settings-help"><?php esc_html_e( 'Loaded from Asana using the current personal access token.', 'wp-formy' ); ?></div>
 										</div>
 										<div class="wp-formy-settings-field">
-											<label for="asana_project_gid"><?php esc_html_e( 'Default Project GID', 'wp-formy' ); ?></label>
-											<input name="asana_project_gid" id="asana_project_gid" type="text" value="<?php echo esc_attr( $settings['asana_project_gid'] ); ?>">
-											<div class="wp-formy-settings-help"><?php esc_html_e( 'Optional. If provided, new tasks will be added to this project unless a form overrides it.', 'wp-formy' ); ?></div>
+											<label for="asana_project_gid"><?php esc_html_e( 'Default Project', 'wp-formy' ); ?></label>
+											<select name="asana_project_gid" id="asana_project_gid">
+												<option value=""><?php esc_html_e( 'No default project', 'wp-formy' ); ?></option>
+												<?php foreach ( $asana_cache['projects'] as $project ) : ?>
+													<option value="<?php echo esc_attr( $project['gid'] ); ?>" <?php selected( $settings['asana_project_gid'], $project['gid'] ); ?>><?php echo esc_html( $project['name'] . ' (' . $project['gid'] . ')' ); ?></option>
+												<?php endforeach; ?>
+											</select>
+											<div class="wp-formy-settings-help"><?php esc_html_e( 'Optional. Projects refresh based on the selected workspace.', 'wp-formy' ); ?></div>
 										</div>
 									</div>
+									<script>
+									(function() {
+										const tokenInput = document.getElementById('asana_personal_access_token');
+										const workspaceSelect = document.getElementById('asana_workspace_gid');
+										const projectSelect = document.getElementById('asana_project_gid');
+										const refreshButton = document.getElementById('wpf-refresh-asana-data');
+										const statusNode = document.getElementById('wpf-asana-sync-status');
+										const syncNonce = '<?php echo esc_js( wp_create_nonce( 'wpf_sync_asana_reference_data' ) ); ?>';
+
+										if (!tokenInput || !workspaceSelect || !projectSelect || !refreshButton) {
+											return;
+										}
+
+										function setStatus(message, isError) {
+											if (!statusNode) {
+												return;
+											}
+
+											statusNode.textContent = message;
+											statusNode.style.color = isError ? '#b32d2e' : '';
+										}
+
+										function replaceOptions(select, options, placeholder, selectedValue) {
+											select.innerHTML = '';
+											const baseOption = document.createElement('option');
+											baseOption.value = '';
+											baseOption.textContent = placeholder;
+											select.appendChild(baseOption);
+
+											options.forEach(function(option) {
+												const el = document.createElement('option');
+												el.value = option.gid;
+												el.textContent = option.name + ' (' + option.gid + ')';
+												if (selectedValue && selectedValue === option.gid) {
+													el.selected = true;
+												}
+												select.appendChild(el);
+											});
+										}
+
+										function syncAsanaData(workspaceOverride) {
+											const token = tokenInput.value.trim();
+											if (!token) {
+												setStatus('<?php echo esc_js( __( 'Add a personal access token first.', 'wp-formy' ) ); ?>', true);
+												return;
+											}
+
+											refreshButton.disabled = true;
+											setStatus('<?php echo esc_js( __( 'Refreshing Asana data...', 'wp-formy' ) ); ?>', false);
+
+											const formData = new FormData();
+											formData.append('action', 'wpf_sync_asana_reference_data');
+											formData.append('nonce', syncNonce);
+											formData.append('token', token);
+											formData.append('workspace_gid', typeof workspaceOverride === 'string' ? workspaceOverride : workspaceSelect.value);
+
+											fetch(ajaxurl, {
+												method: 'POST',
+												body: formData
+											})
+												.then((response) => response.json())
+												.then((response) => {
+													if (!response.success) {
+														setStatus(response.data || '<?php echo esc_js( __( 'Unable to refresh Asana data.', 'wp-formy' ) ); ?>', true);
+														return;
+													}
+
+													const data = response.data || {};
+													replaceOptions(workspaceSelect, data.workspaces || [], '<?php echo esc_js( __( 'Select a workspace', 'wp-formy' ) ); ?>', data.workspace_gid || '');
+													replaceOptions(projectSelect, data.projects || [], '<?php echo esc_js( __( 'No default project', 'wp-formy' ) ); ?>', projectSelect.value);
+													if (data.updated_at) {
+														setStatus('<?php echo esc_js( __( 'Asana data refreshed.', 'wp-formy' ) ); ?>', false);
+													}
+												})
+												.catch(() => {
+													setStatus('<?php echo esc_js( __( 'Unable to refresh Asana data.', 'wp-formy' ) ); ?>', true);
+												})
+												.finally(() => {
+													refreshButton.disabled = false;
+												});
+										}
+
+										refreshButton.addEventListener('click', function() {
+											syncAsanaData();
+										});
+
+										workspaceSelect.addEventListener('change', function() {
+											if (tokenInput.value.trim()) {
+												syncAsanaData(this.value);
+											}
+										});
+									})();
+									</script>
 								</div>
 
 								<div class="wp-formy-settings-card">
@@ -1337,6 +1761,23 @@ class WP_Formy_Admin {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'Insufficient permissions.', 'wp-formy' ) );
 		}
+
+		$updates_page_url = add_query_arg(
+			array(
+				'page' => 'wp-formy-updates',
+			),
+			admin_url( 'admin.php' )
+		);
+		$refresh_updates_url = wp_nonce_url(
+			add_query_arg(
+				array(
+					'page'                => 'wp-formy-about',
+					'wpf_refresh_updates' => '1',
+				),
+				admin_url( 'admin.php' )
+			),
+			'wpf_refresh_updates'
+		);
 		?>
 		<div class="wrap">
 			<style>
@@ -1350,6 +1791,7 @@ class WP_Formy_Admin {
 				.wp-formy-about-card{padding:24px;border:1px solid #e5e7eb;border-radius:22px;background:#fff}
 				.wp-formy-about-card h2{margin:0 0 10px;font-size:20px;color:#111827}
 				.wp-formy-about-card p{margin:0;color:#4b5563;line-height:1.7}
+				.wp-formy-about-actions{margin-top:22px;display:flex;gap:12px;flex-wrap:wrap}
 				.wp-formy-about-meta{margin-top:24px;padding:24px;border:1px solid #e5e7eb;border-radius:22px;background:#fff}
 				.wp-formy-about-meta table{width:100%;border-collapse:collapse}
 				.wp-formy-about-meta th,.wp-formy-about-meta td{padding:12px 0;border-bottom:1px solid #f1f5f9;text-align:left;vertical-align:top}
@@ -1378,6 +1820,11 @@ class WP_Formy_Admin {
 						</div>
 					</div>
 
+					<div class="wp-formy-about-actions">
+						<a class="button button-primary" href="<?php echo esc_url( $updates_page_url ); ?>"><?php esc_html_e( 'Check for Updates', 'wp-formy' ); ?></a>
+						<a class="button" href="<?php echo esc_url( $refresh_updates_url ); ?>"><?php esc_html_e( 'Refresh Update Status', 'wp-formy' ); ?></a>
+					</div>
+
 					<div class="wp-formy-about-meta">
 						<table>
 							<tbody>
@@ -1400,6 +1847,125 @@ class WP_Formy_Admin {
 							</tbody>
 						</table>
 					</div>
+				</div>
+			</div>
+		</div>
+		<?php
+	}
+
+	public function display_updates_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Insufficient permissions.', 'wp-formy' ) );
+		}
+
+		$update_status = $this->get_update_status();
+		$refresh_url   = wp_nonce_url(
+			add_query_arg(
+				array(
+					'page'                => 'wp-formy-updates',
+					'wpf_refresh_updates' => '1',
+				),
+				admin_url( 'admin.php' )
+			),
+			'wpf_refresh_updates'
+		);
+		$about_url     = add_query_arg(
+			array(
+				'page' => 'wp-formy-about',
+			),
+			admin_url( 'admin.php' )
+		);
+		$releases_url  = $this->get_releases_url();
+		?>
+		<div class="wrap">
+			<style>
+				.wp-formy-updates-shell{max-width:980px;margin-top:20px;background:linear-gradient(180deg,#fff 0%,#f8fafc 100%);border:1px solid #e5e7eb;border-radius:28px;overflow:hidden;box-shadow:0 22px 48px rgba(15,23,42,.06)}
+				.wp-formy-updates-hero{padding:38px 42px;background:linear-gradient(135deg,#0f7ac6 0%,#0b5e97 100%);color:#fff}
+				.wp-formy-updates-hero h1{margin:0 0 10px;font-size:34px;line-height:1.1;color:#fff}
+				.wp-formy-updates-hero p{margin:0;max-width:720px;color:rgba(255,255,255,.92);font-size:16px;line-height:1.7}
+				.wp-formy-updates-body{padding:32px 42px}
+				.wp-formy-updates-actions{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+				.wp-formy-updates-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+				.wp-formy-updates-stat{padding:20px 22px;border:1px solid #e5e7eb;border-radius:22px;background:#fff}
+				.wp-formy-updates-stat strong{display:block;font-size:30px;line-height:1;color:#111827;margin-bottom:8px}
+				.wp-formy-updates-stat span{color:#6b7280;font-weight:600}
+				.wp-formy-updates-card{margin-top:22px;padding:24px;border:1px solid #e5e7eb;border-radius:24px;background:#fff}
+				.wp-formy-updates-card h2{margin:0 0 10px;font-size:22px;color:#111827}
+				.wp-formy-updates-card p{margin:0;color:#4b5563;line-height:1.7}
+				.wp-formy-updates-badge{display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+				.wp-formy-updates-badge.is-ok{background:#ecfdf3;color:#166534}
+				.wp-formy-updates-badge.is-update{background:#eff6ff;color:#1d4ed8}
+				.wp-formy-updates-badge.is-error{background:#fef2f2;color:#b91c1c}
+				.wp-formy-updates-meta{margin-top:16px;width:100%;border-collapse:collapse}
+				.wp-formy-updates-meta th,.wp-formy-updates-meta td{padding:12px 0;border-bottom:1px solid #f1f5f9;text-align:left;vertical-align:top}
+				.wp-formy-updates-meta tr:last-child th,.wp-formy-updates-meta tr:last-child td{border-bottom:0}
+				.wp-formy-updates-meta th{width:180px;color:#6b7280;font-weight:600}
+				.wp-formy-updates-notice{margin-bottom:18px}
+				@media (max-width: 900px){.wp-formy-updates-body,.wp-formy-updates-hero{padding:26px}.wp-formy-updates-grid{grid-template-columns:1fr}}
+			</style>
+
+			<div class="wp-formy-updates-shell">
+				<div class="wp-formy-updates-hero">
+					<h1><?php esc_html_e( 'Check for Updates', 'wp-formy' ); ?></h1>
+					<p><?php esc_html_e( 'WP Formy checks the latest GitHub release on your repository and compares it with the installed version on this site.', 'wp-formy' ); ?></p>
+				</div>
+				<div class="wp-formy-updates-body">
+					<?php if ( isset( $_GET['updates-checked'] ) ) : ?>
+						<div class="notice notice-success is-dismissible wp-formy-updates-notice"><p><?php esc_html_e( 'Update status refreshed.', 'wp-formy' ); ?></p></div>
+					<?php endif; ?>
+					<?php if ( isset( $_GET['update-error'] ) ) : ?>
+						<div class="notice notice-error is-dismissible wp-formy-updates-notice"><p><?php echo esc_html( sanitize_text_field( wp_unslash( $_GET['update-error'] ) ) ); ?></p></div>
+					<?php endif; ?>
+
+					<div class="wp-formy-updates-actions">
+						<a class="button button-primary" href="<?php echo esc_url( $refresh_url ); ?>"><?php esc_html_e( 'Refresh Update Status', 'wp-formy' ); ?></a>
+						<a class="button" href="<?php echo esc_url( $releases_url ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'View GitHub Releases', 'wp-formy' ); ?></a>
+						<a class="button" href="<?php echo esc_url( $about_url ); ?>"><?php esc_html_e( 'About WP Formy', 'wp-formy' ); ?></a>
+					</div>
+
+					<?php if ( is_wp_error( $update_status ) ) : ?>
+						<div class="wp-formy-updates-card">
+							<span class="wp-formy-updates-badge is-error"><?php esc_html_e( 'Check Failed', 'wp-formy' ); ?></span>
+							<h2><?php esc_html_e( 'We could not verify the latest release right now.', 'wp-formy' ); ?></h2>
+							<p><?php echo esc_html( $update_status->get_error_message() ); ?></p>
+						</div>
+					<?php else : ?>
+						<?php $release = $update_status['release']; ?>
+						<div class="wp-formy-updates-grid">
+							<div class="wp-formy-updates-stat"><strong><?php echo esc_html( $update_status['current_version'] ); ?></strong><span><?php esc_html_e( 'Installed Version', 'wp-formy' ); ?></span></div>
+							<div class="wp-formy-updates-stat"><strong><?php echo esc_html( $update_status['latest_version'] ); ?></strong><span><?php esc_html_e( 'Latest GitHub Release', 'wp-formy' ); ?></span></div>
+							<div class="wp-formy-updates-stat"><strong><?php echo esc_html( ! empty( $release['checked_at'] ) ? wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $release['checked_at'] ) ) : __( 'Just now', 'wp-formy' ) ); ?></strong><span><?php esc_html_e( 'Last Checked', 'wp-formy' ); ?></span></div>
+						</div>
+
+						<div class="wp-formy-updates-card">
+							<span class="wp-formy-updates-badge <?php echo $update_status['has_update'] ? 'is-update' : 'is-ok'; ?>">
+								<?php echo esc_html( $update_status['has_update'] ? __( 'Update Available', 'wp-formy' ) : __( 'Up to Date', 'wp-formy' ) ); ?>
+							</span>
+							<h2><?php echo esc_html( $update_status['has_update'] ? __( 'A newer release is available on GitHub.', 'wp-formy' ) : __( 'This site is running the latest published release.', 'wp-formy' ) ); ?></h2>
+							<p><?php echo esc_html( $update_status['has_update'] ? __( 'Open the GitHub release page to download or review the newest package before updating this site.', 'wp-formy' ) : __( 'The installed WP Formy version matches the latest GitHub release currently published for this repository.', 'wp-formy' ) ); ?></p>
+
+							<table class="wp-formy-updates-meta">
+								<tbody>
+									<tr>
+										<th><?php esc_html_e( 'Release', 'wp-formy' ); ?></th>
+										<td><a href="<?php echo esc_url( $release['html_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( ! empty( $release['name'] ) ? $release['name'] : $release['tag_name'] ); ?></a></td>
+									</tr>
+									<tr>
+										<th><?php esc_html_e( 'Tag', 'wp-formy' ); ?></th>
+										<td><code><?php echo esc_html( $release['tag_name'] ); ?></code></td>
+									</tr>
+									<tr>
+										<th><?php esc_html_e( 'Published', 'wp-formy' ); ?></th>
+										<td><?php echo esc_html( ! empty( $release['published_at'] ) ? wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $release['published_at'] ) ) : __( 'Unknown', 'wp-formy' ) ); ?></td>
+									</tr>
+									<tr>
+										<th><?php esc_html_e( 'Repository', 'wp-formy' ); ?></th>
+										<td><a href="<?php echo esc_url( $this->get_repository_url() ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $this->get_repository_url() ); ?></a></td>
+									</tr>
+								</tbody>
+							</table>
+						</div>
+					<?php endif; ?>
 				</div>
 			</div>
 		</div>
