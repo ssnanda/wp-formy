@@ -292,7 +292,7 @@ class WP_Formy_Admin {
 			'validation_mode'                => 'native',
 			'require_unique_form_names'      => '1',
 			'honeypot_enabled'               => '1',
-			'spam_challenge_provider'        => '',
+			'spam_challenge_provider'        => 'turnstile',
 			'recaptcha_site_key'             => '',
 			'recaptcha_secret_key'           => '',
 			'hcaptcha_site_key'              => '',
@@ -701,7 +701,7 @@ class WP_Formy_Admin {
 			'validation_mode'                => isset( $_POST['validation_mode'] ) && in_array( sanitize_key( wp_unslash( $_POST['validation_mode'] ) ), array( 'native', 'friendly' ), true ) ? sanitize_key( wp_unslash( $_POST['validation_mode'] ) ) : 'native',
 			'require_unique_form_names'      => isset( $_POST['require_unique_form_names'] ) ? '1' : '0',
 			'honeypot_enabled'               => isset( $_POST['honeypot_enabled'] ) ? '1' : '0',
-			'spam_challenge_provider'        => isset( $_POST['spam_challenge_provider'] ) && in_array( sanitize_key( wp_unslash( $_POST['spam_challenge_provider'] ) ), array( 'recaptcha', 'hcaptcha', 'turnstile' ), true ) ? sanitize_key( wp_unslash( $_POST['spam_challenge_provider'] ) ) : '',
+			'spam_challenge_provider'        => isset( $_POST['spam_challenge_provider'] ) && in_array( sanitize_key( wp_unslash( $_POST['spam_challenge_provider'] ) ), array( 'recaptcha', 'hcaptcha', 'turnstile' ), true ) ? sanitize_key( wp_unslash( $_POST['spam_challenge_provider'] ) ) : 'turnstile',
 			'recaptcha_site_key'             => isset( $_POST['recaptcha_site_key'] ) ? sanitize_text_field( wp_unslash( $_POST['recaptcha_site_key'] ) ) : '',
 			'recaptcha_secret_key'           => isset( $_POST['recaptcha_secret_key'] ) ? sanitize_text_field( wp_unslash( $_POST['recaptcha_secret_key'] ) ) : '',
 			'hcaptcha_site_key'              => isset( $_POST['hcaptcha_site_key'] ) ? sanitize_text_field( wp_unslash( $_POST['hcaptcha_site_key'] ) ) : '',
@@ -1336,6 +1336,19 @@ class WP_Formy_Admin {
 				.wp-formy-provider-editor{padding:18px;border:1px solid #eceef2;border-radius:20px;background:#fff}
 				.wp-formy-provider-editor .wp-formy-settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 				.wp-formy-settings-help-links{display:flex;gap:10px;flex-wrap:wrap}
+				#spam_challenge_provider{
+					appearance:none;
+					-webkit-appearance:none;
+					-moz-appearance:none;
+					padding-right:44px;
+					font-weight:600;
+					background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%23475569' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+					background-repeat:no-repeat;
+					background-position:right 14px center;
+					background-size:16px 16px;
+					box-shadow:0 1px 2px rgba(15,23,42,.04);
+					cursor:pointer;
+				}
 				@media (max-width: 1100px){
 					.wp-formy-settings-layout{grid-template-columns:1fr}
 					.wp-formy-settings-sidebar{border-right:0;border-bottom:1px solid #eceef2}
