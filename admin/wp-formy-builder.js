@@ -1482,6 +1482,10 @@ function initWPFormyBuilder() {
                         }
                     }
                     window.alert(status === 'draft' ? 'Draft saved successfully.' : 'Form saved successfully.');
+
+                    if (status !== 'draft' && data.data && data.data.forms_url) {
+                        window.location.href = data.data.forms_url;
+                    }
                 } else {
                     window.alert(data.data || 'Unable to save form.');
                 }

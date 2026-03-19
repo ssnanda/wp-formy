@@ -2117,6 +2117,7 @@ class WP_Formy_Admin {
 					admin_url( 'admin.php' )
 				),
 				'preview_url' => $this->get_form_preview_url( $form_id ),
+				'forms_url'   => admin_url( 'admin.php?page=wp-formy' ),
 			)
 		);
 	}
