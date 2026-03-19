@@ -85,6 +85,118 @@ class WP_Formy {
 		return ! empty( $plugin_settings['honeypot_enabled'] ) && '1' === (string) $plugin_settings['honeypot_enabled'];
 	}
 
+	private function get_spam_provider_config() {
+		$plugin_settings = function_exists( 'wp_formy_get_settings' ) ? wp_formy_get_settings() : array();
+		$provider        = ! empty( $plugin_settings['spam_challenge_provider'] ) ? sanitize_key( $plugin_settings['spam_challenge_provider'] ) : '';
+
+		$providers = array(
+			'recaptcha' => array(
+				'provider'         => 'recaptcha',
+				'site_key'         => ! empty( $plugin_settings['recaptcha_site_key'] ) ? sanitize_text_field( $plugin_settings['recaptcha_site_key'] ) : '',
+				'secret_key'       => ! empty( $plugin_settings['recaptcha_secret_key'] ) ? sanitize_text_field( $plugin_settings['recaptcha_secret_key'] ) : '',
+				'script_url'       => 'https://www.google.com/recaptcha/api.js',
+				'token_field'      => 'g-recaptcha-response',
+				'container_class'  => 'g-recaptcha',
+				'verify_endpoint'  => 'https://www.google.com/recaptcha/api/siteverify',
+			),
+			'hcaptcha' => array(
+				'provider'         => 'hcaptcha',
+				'site_key'         => ! empty( $plugin_settings['hcaptcha_site_key'] ) ? sanitize_text_field( $plugin_settings['hcaptcha_site_key'] ) : '',
+				'secret_key'       => ! empty( $plugin_settings['hcaptcha_secret_key'] ) ? sanitize_text_field( $plugin_settings['hcaptcha_secret_key'] ) : '',
+				'script_url'       => 'https://js.hcaptcha.com/1/api.js',
+				'token_field'      => 'h-captcha-response',
+				'container_class'  => 'h-captcha',
+				'verify_endpoint'  => 'https://api.hcaptcha.com/siteverify',
+			),
+			'turnstile' => array(
+				'provider'         => 'turnstile',
+				'site_key'         => ! empty( $plugin_settings['turnstile_site_key'] ) ? sanitize_text_field( $plugin_settings['turnstile_site_key'] ) : '',
+				'secret_key'       => ! empty( $plugin_settings['turnstile_secret_key'] ) ? sanitize_text_field( $plugin_settings['turnstile_secret_key'] ) : '',
+				'script_url'       => 'https://challenges.cloudflare.com/turnstile/v0/api.js',
+				'token_field'      => 'cf-turnstile-response',
+				'container_class'  => 'cf-turnstile',
+				'verify_endpoint'  => 'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+			),
+		);
+
+		if ( empty( $providers[ $provider ] ) ) {
+			return array(
+				'provider'   => '',
+				'site_key'   => '',
+				'secret_key' => '',
+			);
+		}
+
+		return $providers[ $provider ];
+	}
+
+	private function should_render_challenge_provider() {
+		$config = $this->get_spam_provider_config();
+
+		return ! empty( $config['provider'] ) && ! empty( $config['site_key'] ) && ! empty( $config['secret_key'] );
+	}
+
+	private function validate_challenge_provider_token() {
+		$config = $this->get_spam_provider_config();
+
+		if ( empty( $config['provider'] ) || '' === $config['secret_key'] ) {
+			return true;
+		}
+
+		$token_field = $config['token_field'];
+		$token       = isset( $_POST[ $token_field ] ) ? sanitize_text_field( wp_unslash( $_POST[ $token_field ] ) ) : '';
+		if ( '' === $token ) {
+			$messages = array(
+				'recaptcha' => __( 'Please complete the reCAPTCHA check before submitting.', 'wp-formy' ),
+				'hcaptcha'  => __( 'Please complete the hCaptcha check before submitting.', 'wp-formy' ),
+				'turnstile' => __( 'Please complete the Turnstile check before submitting.', 'wp-formy' ),
+			);
+			$message  = isset( $messages[ $config['provider'] ] ) ? $messages[ $config['provider'] ] : __( 'Please complete the challenge check before submitting.', 'wp-formy' );
+
+			return new WP_Error( 'challenge_missing_token', $message );
+		}
+
+		$remote_ip = '';
+		if ( ! empty( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) {
+			$remote_ip = sanitize_text_field( wp_unslash( $_SERVER['HTTP_CF_CONNECTING_IP'] ) );
+		} elseif ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
+			$forwarded = explode( ',', wp_unslash( $_SERVER['HTTP_X_FORWARDED_FOR'] ) );
+			$remote_ip = sanitize_text_field( trim( (string) $forwarded[0] ) );
+		} elseif ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
+			$remote_ip = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) );
+		}
+
+		$response = wp_remote_post(
+			$config['verify_endpoint'],
+			array(
+				'timeout' => 15,
+				'body'    => array(
+					'secret'   => $config['secret_key'],
+					'response' => $token,
+					'remoteip' => $remote_ip,
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'challenge_request_failed', __( 'Challenge verification could not be completed right now.', 'wp-formy' ) );
+		}
+
+		$payload = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( empty( $payload['success'] ) ) {
+			$messages = array(
+				'recaptcha' => __( 'reCAPTCHA verification failed. Please try again.', 'wp-formy' ),
+				'hcaptcha'  => __( 'hCaptcha verification failed. Please try again.', 'wp-formy' ),
+				'turnstile' => __( 'Turnstile verification failed. Please try again.', 'wp-formy' ),
+			);
+			$message  = isset( $messages[ $config['provider'] ] ) ? $messages[ $config['provider'] ] : __( 'Challenge verification failed. Please try again.', 'wp-formy' );
+
+			return new WP_Error( 'challenge_failed', $message );
+		}
+
+		return true;
+	}
+
 	private function get_honeypot_field_name( $form_id ) {
 		return 'wpf_hp_' . absint( $form_id );
 	}
@@ -418,6 +530,18 @@ class WP_Formy {
 			}
 		}
 
+		if ( $this->should_render_challenge_provider() ) {
+			$challenge_check = $this->validate_challenge_provider_token();
+
+			if ( is_wp_error( $challenge_check ) ) {
+				return array(
+					'submitted' => true,
+					'success'   => false,
+					'message'   => $challenge_check->get_error_message(),
+				);
+			}
+		}
+
 		$lead_data = array();
 		$errors    = array();
 
@@ -619,10 +743,16 @@ class WP_Formy {
 			return '<p>This form has no fields.</p>';
 		}
 
+		$challenge_enabled = $this->should_render_challenge_provider();
+		$challenge_config  = $this->get_spam_provider_config();
+
 		$submission_result = $this->handle_form_submission( $form, $fields, $settings );
 
 		ob_start();
 		?>
+		<?php if ( $challenge_enabled ) : ?>
+			<script src="<?php echo esc_url( $challenge_config['script_url'] ); ?>" async defer></script>
+		<?php endif; ?>
 		<form class="wp-formy-frontend-form wp-formy-theme-<?php echo esc_attr( $form_theme ); ?>" method="post" enctype="multipart/form-data" style="<?php echo esc_attr( $wrapper_style ); ?>padding:24px;border-radius:var(--wp-formy-radius);background:var(--wp-formy-bg);border:1px solid #dfe6ee;box-shadow:0 20px 45px rgba(18,52,77,.08);">
 			<input type="hidden" name="wpf_form_id" value="<?php echo esc_attr( $form_id ); ?>">
 			<?php wp_nonce_field( 'wpf_submit_form_' . $form_id, 'wpf_form_nonce' ); ?>
@@ -785,6 +915,12 @@ class WP_Formy {
 						<?php endif; ?>
 					</div>
 				<?php endforeach; ?>
+
+				<?php if ( $challenge_enabled ) : ?>
+					<div class="wp-formy-challenge-wrap wp-formy-challenge-<?php echo esc_attr( $challenge_config['provider'] ); ?>" style="margin:24px 0 12px;">
+						<div class="<?php echo esc_attr( $challenge_config['container_class'] ); ?>" data-sitekey="<?php echo esc_attr( $challenge_config['site_key'] ); ?>"></div>
+					</div>
+				<?php endif; ?>
 
 				<div class="wp-formy-submit" style="text-align:<?php echo esc_attr( ! empty( $settings['button_alignment'] ) ? $settings['button_alignment'] : 'left' ); ?>;">
 					<button type="submit" style="background:var(--wp-formy-primary);color:#fff;border:0;border-radius:calc(var(--wp-formy-radius) - 4px);padding:12px 20px;font-weight:700;"><?php echo esc_html( $submit_text ); ?></button>
