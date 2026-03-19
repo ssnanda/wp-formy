@@ -15,6 +15,8 @@ $plugin_settings = function_exists( 'wp_formy_get_settings' ) ? wp_formy_get_set
 	'default_notifications_enabled' => '1',
 	'asana_enabled'                 => '0',
 	'asana_project_gid'             => '',
+	'stripe_publishable_key'        => '',
+	'stripe_secret_key'             => '',
 );
 
 $initial_data = array(
@@ -40,6 +42,7 @@ $initial_data = array(
 			'asana_task_name'       => 'New form submission: {form_title}',
 			'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
 			'asana_project_gid'     => $plugin_settings['asana_project_gid'],
+			'stripe_enabled'        => false,
 			'form_theme'            => 'clean',
 			'background_mode'       => 'solid',
 			'background_color'      => '#ffffff',
@@ -86,6 +89,7 @@ if ( $form_id ) {
 						'asana_task_name'       => 'New form submission: {form_title}',
 						'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
 						'asana_project_gid'     => $plugin_settings['asana_project_gid'],
+						'stripe_enabled'        => false,
 						'form_theme'            => 'clean',
 						'background_mode'       => 'solid',
 						'background_color'      => '#ffffff',
@@ -113,6 +117,7 @@ if ( $form_id ) {
 					'asana_task_name'       => 'New form submission: {form_title}',
 					'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
 					'asana_project_gid'     => $plugin_settings['asana_project_gid'],
+					'stripe_enabled'        => false,
 					'form_theme'            => 'clean',
 					'background_mode'       => 'solid',
 					'background_color'      => '#ffffff',
@@ -359,6 +364,13 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 								<label>Project GID Override</label>
 								<input type="text" id="wpf-form-asana-project-gid" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['asana_project_gid'] ) ? $initial_data['schema']['settings']['asana_project_gid'] : $plugin_settings['asana_project_gid'] ); ?>">
 								<p class="wpf-setting-help">Optional. Leave blank to use the global Asana project from Settings.</p>
+							</div>
+							<div class="wpf-setting-row">
+								<label class="wpf-toggle-row">
+									<span>Enable Stripe Payments</span>
+									<input type="checkbox" id="wpf-form-stripe-enabled" <?php checked( ! empty( $initial_data['schema']['settings']['stripe_enabled'] ) ); ?> <?php disabled( empty( $plugin_settings['stripe_publishable_key'] ) || empty( $plugin_settings['stripe_secret_key'] ) ); ?>>
+								</label>
+								<p class="wpf-setting-help"><?php echo ( ! empty( $plugin_settings['stripe_publishable_key'] ) && ! empty( $plugin_settings['stripe_secret_key'] ) ) ? esc_html__( 'Keys are connected globally. Turn this on only for forms that should collect payment.', 'wp-formy' ) : esc_html__( 'Add Stripe keys on the Stripe Payments settings page first.', 'wp-formy' ); ?></p>
 							</div>
 						</div>
 

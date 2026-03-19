@@ -248,6 +248,7 @@ function initWPFormyBuilder() {
                     asana_task_name: 'New form submission: {form_title}',
                     asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
                     asana_project_gid: '',
+                    stripe_enabled: false,
                     form_theme: 'clean',
                     background_mode: 'solid',
                     background_color: '#ffffff',
@@ -285,6 +286,7 @@ function initWPFormyBuilder() {
                         asana_task_name: 'New form submission: {form_title}',
                         asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
                         asana_project_gid: '',
+                        stripe_enabled: false,
                         form_theme: 'clean',
                         background_mode: 'solid',
                         background_color: '#ffffff',
@@ -322,6 +324,7 @@ function initWPFormyBuilder() {
                 asana_task_name: 'New form submission: {form_title}',
                 asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
                 asana_project_gid: '',
+                stripe_enabled: false,
                 form_theme: 'clean',
                 background_mode: 'solid',
                 background_color: '#ffffff',
@@ -1389,6 +1392,7 @@ function initWPFormyBuilder() {
         const asanaTaskNameInput = document.getElementById('wpf-form-asana-task-name');
         const asanaTaskNotesInput = document.getElementById('wpf-form-asana-task-notes');
         const asanaProjectGidInput = document.getElementById('wpf-form-asana-project-gid');
+        const stripeEnabledInput = document.getElementById('wpf-form-stripe-enabled');
         const formThemeInput = document.getElementById('wpf-form-theme');
         const backgroundModeInput = document.getElementById('wpf-form-background-mode');
         const backgroundColorInput = document.getElementById('wpf-form-background-color');
@@ -1423,6 +1427,7 @@ function initWPFormyBuilder() {
         formSchema.settings.asana_task_name = asanaTaskNameInput ? (asanaTaskNameInput.value.trim() || 'New form submission: {form_title}') : 'New form submission: {form_title}';
         formSchema.settings.asana_task_notes = asanaTaskNotesInput ? (asanaTaskNotesInput.value.trim() || 'A new submission was received for {form_title}.\n\n{submission_fields}') : 'A new submission was received for {form_title}.\n\n{submission_fields}';
         formSchema.settings.asana_project_gid = asanaProjectGidInput ? asanaProjectGidInput.value.trim() : '';
+        formSchema.settings.stripe_enabled = stripeEnabledInput ? !!stripeEnabledInput.checked : false;
         formSchema.settings.form_theme = formThemeInput ? (formThemeInput.value || 'clean') : 'clean';
         formSchema.settings.background_mode = backgroundModeInput ? (backgroundModeInput.value || 'solid') : 'solid';
         formSchema.settings.background_color = backgroundColorInput ? (backgroundColorInput.value || '#ffffff') : '#ffffff';

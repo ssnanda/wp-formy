@@ -429,6 +429,7 @@ class WP_Formy_Admin {
 				'asana_task_name'       => isset( $normalized['settings']['asana_task_name'] ) ? sanitize_text_field( $normalized['settings']['asana_task_name'] ) : 'New form submission: {form_title}',
 				'asana_task_notes'      => isset( $normalized['settings']['asana_task_notes'] ) ? sanitize_textarea_field( $normalized['settings']['asana_task_notes'] ) : "A new submission was received for {form_title}.\n\n{submission_fields}",
 				'asana_project_gid'     => isset( $normalized['settings']['asana_project_gid'] ) ? sanitize_text_field( $normalized['settings']['asana_project_gid'] ) : '',
+				'stripe_enabled'        => ! empty( $normalized['settings']['stripe_enabled'] ),
 				'form_theme'            => isset( $normalized['settings']['form_theme'] ) && in_array( sanitize_key( $normalized['settings']['form_theme'] ), array( 'clean', 'soft', 'contrast' ), true ) ? sanitize_key( $normalized['settings']['form_theme'] ) : 'clean',
 				'background_mode'       => isset( $normalized['settings']['background_mode'] ) && in_array( sanitize_key( $normalized['settings']['background_mode'] ), array( 'solid', 'gradient' ), true ) ? sanitize_key( $normalized['settings']['background_mode'] ) : 'solid',
 				'background_color'      => isset( $normalized['settings']['background_color'] ) ? sanitize_hex_color( $normalized['settings']['background_color'] ) : '#ffffff',
@@ -698,8 +699,8 @@ class WP_Formy_Admin {
 			'default_from_name'              => isset( $_POST['default_from_name'] ) ? sanitize_text_field( wp_unslash( $_POST['default_from_name'] ) ) : get_bloginfo( 'name' ),
 			'default_reply_to_mode'          => isset( $_POST['default_reply_to_mode'] ) && in_array( sanitize_key( wp_unslash( $_POST['default_reply_to_mode'] ) ), array( 'submitter', 'site' ), true ) ? sanitize_key( wp_unslash( $_POST['default_reply_to_mode'] ) ) : 'submitter',
 			'default_success_message'        => isset( $_POST['default_success_message'] ) ? sanitize_textarea_field( wp_unslash( $_POST['default_success_message'] ) ) : 'Form submitted successfully.',
-			'validation_mode'                => isset( $_POST['validation_mode'] ) && in_array( sanitize_key( wp_unslash( $_POST['validation_mode'] ) ), array( 'native', 'friendly' ), true ) ? sanitize_key( wp_unslash( $_POST['validation_mode'] ) ) : 'native',
-			'require_unique_form_names'      => isset( $_POST['require_unique_form_names'] ) ? '1' : '0',
+			'validation_mode'                => 'native',
+			'require_unique_form_names'      => '1',
 			'honeypot_enabled'               => isset( $_POST['honeypot_enabled'] ) ? '1' : '0',
 			'spam_challenge_provider'        => isset( $_POST['spam_challenge_provider'] ) && in_array( sanitize_key( wp_unslash( $_POST['spam_challenge_provider'] ) ), array( 'recaptcha', 'hcaptcha', 'turnstile' ), true ) ? sanitize_key( wp_unslash( $_POST['spam_challenge_provider'] ) ) : 'turnstile',
 			'recaptcha_site_key'             => isset( $_POST['recaptcha_site_key'] ) ? sanitize_text_field( wp_unslash( $_POST['recaptcha_site_key'] ) ) : '',
@@ -1278,12 +1279,8 @@ class WP_Formy_Admin {
 				'icon'  => 'admin-links',
 			),
 			'payments'     => array(
-				'label' => __( 'Payments', 'wp-formy' ),
+				'label' => __( 'Stripe Payments', 'wp-formy' ),
 				'icon'  => 'cart',
-				'children' => array(
-					'general' => __( 'General', 'wp-formy' ),
-					'methods' => __( 'Payment Methods', 'wp-formy' ),
-				),
 			),
 		);
 
@@ -1417,9 +1414,6 @@ class WP_Formy_Admin {
 								<?php if ( 'general' === $section ) : ?>
 									<h2><?php esc_html_e( 'General Settings', 'wp-formy' ); ?></h2>
 									<p><?php esc_html_e( 'Set the defaults WP Formy should use for notifications, reply behavior, and submission feedback across your forms.', 'wp-formy' ); ?></p>
-								<?php elseif ( 'validation' === $section ) : ?>
-									<h2><?php esc_html_e( 'Form Validation', 'wp-formy' ); ?></h2>
-									<p><?php esc_html_e( 'Control how validation feels for visitors and keep the form builder opinionated about unique form names.', 'wp-formy' ); ?></p>
 								<?php elseif ( 'spam' === $section ) : ?>
 									<h2><?php esc_html_e( 'Spam Protection', 'wp-formy' ); ?></h2>
 									<p><?php esc_html_e( 'Manage the site-wide spam defaults and whichever one challenge provider you want ready to use.', 'wp-formy' ); ?></p>
@@ -1427,8 +1421,8 @@ class WP_Formy_Admin {
 									<h2><?php esc_html_e( 'Integrations', 'wp-formy' ); ?></h2>
 									<p><?php esc_html_e( 'Prepare outbound hooks and future service connections so your form submissions can feed the rest of your stack.', 'wp-formy' ); ?></p>
 								<?php elseif ( 'payments' === $section ) : ?>
-									<h2><?php esc_html_e( 'Payments', 'wp-formy' ); ?></h2>
-									<p><?php esc_html_e( 'Connect and manage payment gateways so forms can eventually collect payments without leaving your site.', 'wp-formy' ); ?></p>
+									<h2><?php esc_html_e( 'Stripe Payments', 'wp-formy' ); ?></h2>
+									<p><?php esc_html_e( 'Connect Stripe here once, then choose which individual forms should use it from the builder.', 'wp-formy' ); ?></p>
 								<?php endif; ?>
 							</div>
 
@@ -1478,28 +1472,6 @@ class WP_Formy_Admin {
 										<label for="default_success_message"><?php esc_html_e( 'Success Message', 'wp-formy' ); ?></label>
 										<textarea name="default_success_message" id="default_success_message"><?php echo esc_textarea( $settings['default_success_message'] ); ?></textarea>
 										<div class="wp-formy-settings-help"><?php esc_html_e( 'Used as the starting success message when building a new form.', 'wp-formy' ); ?></div>
-									</div>
-								</div>
-							<?php elseif ( 'validation' === $section ) : ?>
-								<div class="wp-formy-settings-card">
-									<span class="wp-formy-settings-pill"><?php esc_html_e( 'Validation', 'wp-formy' ); ?></span>
-									<h3><?php esc_html_e( 'How forms should validate', 'wp-formy' ); ?></h3>
-									<p><?php esc_html_e( 'Keep validation strict enough for clean data while still feeling friendly for visitors.', 'wp-formy' ); ?></p>
-									<div class="wp-formy-settings-grid">
-										<div class="wp-formy-settings-field">
-											<label for="validation_mode"><?php esc_html_e( 'Validation Style', 'wp-formy' ); ?></label>
-											<select name="validation_mode" id="validation_mode">
-												<option value="native" <?php selected( $settings['validation_mode'], 'native' ); ?>><?php esc_html_e( 'Native browser validation', 'wp-formy' ); ?></option>
-												<option value="friendly" <?php selected( $settings['validation_mode'], 'friendly' ); ?>><?php esc_html_e( 'Friendly inline validation', 'wp-formy' ); ?></option>
-											</select>
-										</div>
-									</div>
-									<div class="wp-formy-settings-checkbox" style="margin-top:22px;">
-										<input name="require_unique_form_names" id="require_unique_form_names" type="checkbox" value="1" <?php checked( '1' === (string) $settings['require_unique_form_names'] ); ?>>
-										<div>
-											<strong><?php esc_html_e( 'Require unique form names', 'wp-formy' ); ?></strong>
-											<span><?php esc_html_e( 'Prevents duplicate titles so your admin stays easy to scan and export reliably.', 'wp-formy' ); ?></span>
-										</div>
 									</div>
 								</div>
 							<?php elseif ( 'spam' === $section ) : ?>
@@ -1805,24 +1777,18 @@ class WP_Formy_Admin {
 									</div>
 									<div class="wp-formy-settings-note"><?php esc_html_e( 'Future-friendly direction: webhook, CRM sync, and automation providers can all live here without changing the main settings structure again.', 'wp-formy' ); ?></div>
 								</div>
-							<?php elseif ( 'payments' === $section && 'general' === $subsection ) : ?>
+							<?php elseif ( 'payments' === $section ) : ?>
 								<div class="wp-formy-settings-card">
-									<span class="wp-formy-settings-pill"><?php esc_html_e( 'Payments', 'wp-formy' ); ?></span>
-									<h3><?php esc_html_e( 'Payment environment', 'wp-formy' ); ?></h3>
-									<p><?php esc_html_e( 'Decide whether future payment-enabled forms should point at test or live credentials by default.', 'wp-formy' ); ?></p>
-									<div class="wp-formy-settings-field" style="max-width:280px;">
+									<span class="wp-formy-settings-pill"><?php esc_html_e( 'Stripe Payments', 'wp-formy' ); ?></span>
+									<h3><?php esc_html_e( 'Stripe connection', 'wp-formy' ); ?></h3>
+									<p><?php esc_html_e( 'These keys connect WP Formy to Stripe site-wide, but they do not turn payments on for every form. You choose payment-enabled forms individually in the builder.', 'wp-formy' ); ?></p>
+									<div class="wp-formy-settings-field" style="max-width:280px;margin-bottom:22px;">
 										<label for="stripe_mode"><?php esc_html_e( 'Stripe Mode', 'wp-formy' ); ?></label>
 										<select name="stripe_mode" id="stripe_mode">
 											<option value="test" <?php selected( $settings['stripe_mode'], 'test' ); ?>><?php esc_html_e( 'Test', 'wp-formy' ); ?></option>
 											<option value="live" <?php selected( $settings['stripe_mode'], 'live' ); ?>><?php esc_html_e( 'Live', 'wp-formy' ); ?></option>
 										</select>
 									</div>
-								</div>
-							<?php elseif ( 'payments' === $section && 'methods' === $subsection ) : ?>
-								<div class="wp-formy-settings-card">
-									<span class="wp-formy-settings-pill"><?php esc_html_e( 'Payments', 'wp-formy' ); ?></span>
-									<h3><?php esc_html_e( 'Stripe', 'wp-formy' ); ?></h3>
-									<p><?php esc_html_e( 'Save Stripe keys now so we can enable payment collection in the builder without reshaping the settings page later.', 'wp-formy' ); ?></p>
 									<div class="wp-formy-settings-grid">
 										<div class="wp-formy-settings-field">
 											<label for="stripe_publishable_key"><?php esc_html_e( 'Publishable Key', 'wp-formy' ); ?></label>
@@ -1833,7 +1799,7 @@ class WP_Formy_Admin {
 											<input name="stripe_secret_key" id="stripe_secret_key" type="text" value="<?php echo esc_attr( $settings['stripe_secret_key'] ); ?>">
 										</div>
 									</div>
-									<div class="wp-formy-settings-note"><?php esc_html_e( 'Connection UI and live payment processing are not wired yet, but the settings foundation is now in place.', 'wp-formy' ); ?></div>
+									<div class="wp-formy-settings-note"><?php esc_html_e( 'Stripe can now be marked per form in the builder. Live payment field rendering and charge collection still need their own implementation pass.', 'wp-formy' ); ?></div>
 								</div>
 							<?php endif; ?>
 
@@ -2081,7 +2047,7 @@ class WP_Formy_Admin {
 		}
 
 		if ( 'Untitled Form' === $title ) {
-			wp_send_json_error( __( 'Please choose a unique form name instead of the default title.', 'wp-formy' ), 400 );
+			wp_send_json_error( __( 'Change the form name before saving. The default title cannot be used.', 'wp-formy' ), 400 );
 		}
 
 		$schema = json_decode( $schema_json, true );
@@ -2102,7 +2068,7 @@ class WP_Formy_Admin {
 		);
 
 		if ( $existing_form_id > 0 ) {
-			wp_send_json_error( __( 'Form name must be unique.', 'wp-formy' ), 400 );
+			wp_send_json_error( __( 'This form name already exists. Change the name and save again.', 'wp-formy' ), 400 );
 		}
 
 		$data  = array(
