@@ -27,6 +27,8 @@ class WP_Formy {
 		add_action( 'admin_menu', array( $plugin_admin, 'add_plugin_admin_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $plugin_admin, 'enqueue_styles' ) );
 		add_action( 'admin_enqueue_scripts', array( $plugin_admin, 'enqueue_scripts' ) );
+		add_filter( 'plugin_action_links_' . WP_FORMY_PLUGIN_BASENAME, array( $plugin_admin, 'add_plugin_action_links' ) );
+		add_filter( 'plugin_row_meta', array( $plugin_admin, 'add_plugin_row_meta_links' ), 10, 2 );
 
 		add_action( 'wp_ajax_wpf_save_form', array( $plugin_admin, 'ajax_save_form' ) );
 		add_action( 'wp_ajax_wpf_import_form', array( $plugin_admin, 'ajax_import_form' ) );

@@ -292,6 +292,7 @@ class WP_Formy_Admin {
 			'validation_mode'                => 'native',
 			'require_unique_form_names'      => '1',
 			'honeypot_enabled'               => '1',
+			'spam_challenge_provider'        => '',
 			'recaptcha_site_key'             => '',
 			'recaptcha_secret_key'           => '',
 			'hcaptcha_site_key'              => '',
@@ -700,6 +701,7 @@ class WP_Formy_Admin {
 			'validation_mode'                => isset( $_POST['validation_mode'] ) && in_array( sanitize_key( wp_unslash( $_POST['validation_mode'] ) ), array( 'native', 'friendly' ), true ) ? sanitize_key( wp_unslash( $_POST['validation_mode'] ) ) : 'native',
 			'require_unique_form_names'      => isset( $_POST['require_unique_form_names'] ) ? '1' : '0',
 			'honeypot_enabled'               => isset( $_POST['honeypot_enabled'] ) ? '1' : '0',
+			'spam_challenge_provider'        => isset( $_POST['spam_challenge_provider'] ) && in_array( sanitize_key( wp_unslash( $_POST['spam_challenge_provider'] ) ), array( 'recaptcha', 'hcaptcha', 'turnstile' ), true ) ? sanitize_key( wp_unslash( $_POST['spam_challenge_provider'] ) ) : '',
 			'recaptcha_site_key'             => isset( $_POST['recaptcha_site_key'] ) ? sanitize_text_field( wp_unslash( $_POST['recaptcha_site_key'] ) ) : '',
 			'recaptcha_secret_key'           => isset( $_POST['recaptcha_secret_key'] ) ? sanitize_text_field( wp_unslash( $_POST['recaptcha_secret_key'] ) ) : '',
 			'hcaptcha_site_key'              => isset( $_POST['hcaptcha_site_key'] ) ? sanitize_text_field( wp_unslash( $_POST['hcaptcha_site_key'] ) ) : '',
@@ -1069,7 +1071,7 @@ class WP_Formy_Admin {
 		);
 
 		add_submenu_page(
-			'wp-formy',
+			null,
 			__( 'Check for Updates', 'wp-formy' ),
 			__( 'Check for Updates', 'wp-formy' ),
 			'manage_options',
@@ -1085,6 +1087,26 @@ class WP_Formy_Admin {
 			'wp-formy-about',
 			array( $this, 'display_about_page' )
 		);
+	}
+
+	public function add_plugin_action_links( $links ) {
+		$custom_links = array(
+			'updates' => '<a href="' . esc_url( add_query_arg( array( 'page' => 'wp-formy-updates' ), admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Check for Updates', 'wp-formy' ) . '</a>',
+			'about'   => '<a href="' . esc_url( add_query_arg( array( 'page' => 'wp-formy-about' ), admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'About', 'wp-formy' ) . '</a>',
+		);
+
+		return array_merge( $custom_links, $links );
+	}
+
+	public function add_plugin_row_meta_links( $links, $file ) {
+		if ( WP_FORMY_PLUGIN_BASENAME !== $file ) {
+			return $links;
+		}
+
+		$links[] = '<a href="' . esc_url( add_query_arg( array( 'page' => 'wp-formy-updates' ), admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Check for Updates', 'wp-formy' ) . '</a>';
+		$links[] = '<a href="' . esc_url( add_query_arg( array( 'page' => 'wp-formy-about' ), admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'About', 'wp-formy' ) . '</a>';
+
+		return $links;
 	}
 
 	public function display_forms_page() {
@@ -1250,12 +1272,6 @@ class WP_Formy_Admin {
 			'spam'         => array(
 				'label' => __( 'Spam Protection', 'wp-formy' ),
 				'icon'  => 'warning',
-				'children' => array(
-					'recaptcha' => __( 'reCAPTCHA', 'wp-formy' ),
-					'hcaptcha'  => __( 'hCaptcha', 'wp-formy' ),
-					'turnstile' => __( 'Turnstile', 'wp-formy' ),
-					'honeypot'  => __( 'Honeypot', 'wp-formy' ),
-				),
 			),
 			'integrations' => array(
 				'label' => __( 'Integrations', 'wp-formy' ),
@@ -1286,10 +1302,6 @@ class WP_Formy_Admin {
 				.wp-formy-settings-brand{display:flex;align-items:center;gap:14px;margin-right:8px}
 				.wp-formy-settings-brand-badge{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:18px;letter-spacing:.04em}
 				.wp-formy-settings-brand-title{font-size:28px;font-weight:700;color:#1f2937}
-				.wp-formy-settings-tabs{display:flex;align-items:center;gap:28px;flex-wrap:wrap}
-				.wp-formy-settings-tabs a{position:relative;padding:24px 0;color:#4b5563;text-decoration:none;font-size:17px;font-weight:600}
-				.wp-formy-settings-tabs a.is-active{color:#111827}
-				.wp-formy-settings-tabs a.is-active:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:3px;border-radius:999px;background:#ea580c}
 				.wp-formy-settings-layout{display:grid;grid-template-columns:320px 1fr;min-height:720px}
 				.wp-formy-settings-sidebar{background:#fff;border-right:1px solid #eceef2;padding:28px 0}
 				.wp-formy-settings-menu{display:flex;flex-direction:column;gap:8px}
@@ -1319,10 +1331,16 @@ class WP_Formy_Admin {
 				.wp-formy-settings-actions{margin-top:28px;display:flex;align-items:center;gap:14px}
 				.wp-formy-settings-actions .button-primary{background:#ea580c;border-color:#ea580c;padding:0 18px;min-height:42px}
 				.wp-formy-settings-inline-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}
+				.wp-formy-spam-layout{display:grid;grid-template-columns:280px 1fr;gap:18px;align-items:start}
+				.wp-formy-provider-picker{padding:18px;border:1px solid #eceef2;border-radius:20px;background:#fff}
+				.wp-formy-provider-editor{padding:18px;border:1px solid #eceef2;border-radius:20px;background:#fff}
+				.wp-formy-provider-editor .wp-formy-settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+				.wp-formy-settings-help-links{display:flex;gap:10px;flex-wrap:wrap}
 				@media (max-width: 1100px){
 					.wp-formy-settings-layout{grid-template-columns:1fr}
 					.wp-formy-settings-sidebar{border-right:0;border-bottom:1px solid #eceef2}
 					.wp-formy-settings-grid{grid-template-columns:1fr}
+					.wp-formy-spam-layout,.wp-formy-provider-editor .wp-formy-settings-grid{grid-template-columns:1fr}
 				}
 			</style>
 
@@ -1336,21 +1354,6 @@ class WP_Formy_Admin {
 						<div class="wp-formy-settings-brand-badge">F</div>
 						<div class="wp-formy-settings-brand-title"><?php esc_html_e( 'Settings', 'wp-formy' ); ?></div>
 					</div>
-					<nav class="wp-formy-settings-tabs" aria-label="<?php esc_attr_e( 'Settings tabs', 'wp-formy' ); ?>">
-						<?php foreach ( $sections as $section_key => $section_config ) : ?>
-							<?php
-							$section_url = add_query_arg(
-								array(
-									'page'       => 'wp-formy-settings',
-									'section'    => $section_key,
-									'subsection' => ! empty( $section_config['children'] ) ? array_key_first( $section_config['children'] ) : '',
-								),
-								admin_url( 'admin.php' )
-							);
-							?>
-							<a href="<?php echo esc_url( $section_url ); ?>" class="<?php echo $section === $section_key ? 'is-active' : ''; ?>"><?php echo esc_html( $section_config['label'] ); ?></a>
-						<?php endforeach; ?>
-					</nav>
 				</div>
 
 				<div class="wp-formy-settings-layout">
@@ -1406,7 +1409,7 @@ class WP_Formy_Admin {
 									<p><?php esc_html_e( 'Control how validation feels for visitors and keep the form builder opinionated about unique form names.', 'wp-formy' ); ?></p>
 								<?php elseif ( 'spam' === $section ) : ?>
 									<h2><?php esc_html_e( 'Spam Protection', 'wp-formy' ); ?></h2>
-									<p><?php esc_html_e( 'Configure the anti-spam services you want available in WP Formy. Start with Honeypot, then wire in a challenge provider only if needed.', 'wp-formy' ); ?></p>
+									<p><?php esc_html_e( 'Manage the site-wide spam defaults and whichever one challenge provider you want ready to use.', 'wp-formy' ); ?></p>
 								<?php elseif ( 'integrations' === $section ) : ?>
 									<h2><?php esc_html_e( 'Integrations', 'wp-formy' ); ?></h2>
 									<p><?php esc_html_e( 'Prepare outbound hooks and future service connections so your form submissions can feed the rest of your stack.', 'wp-formy' ); ?></p>
@@ -1486,66 +1489,142 @@ class WP_Formy_Admin {
 										</div>
 									</div>
 								</div>
-							<?php elseif ( 'spam' === $section && 'recaptcha' === $subsection ) : ?>
-								<div class="wp-formy-settings-card">
-									<span class="wp-formy-settings-pill"><?php esc_html_e( 'Spam Protection', 'wp-formy' ); ?></span>
-									<h3><?php esc_html_e( 'reCAPTCHA', 'wp-formy' ); ?></h3>
-									<p><?php esc_html_e( 'Add your Google reCAPTCHA keys here so forms can opt into challenge protection later.', 'wp-formy' ); ?></p>
-									<div class="wp-formy-settings-grid">
-										<div class="wp-formy-settings-field">
-											<label for="recaptcha_site_key"><?php esc_html_e( 'Site Key', 'wp-formy' ); ?></label>
-											<input name="recaptcha_site_key" id="recaptcha_site_key" type="text" value="<?php echo esc_attr( $settings['recaptcha_site_key'] ); ?>">
-										</div>
-										<div class="wp-formy-settings-field">
-											<label for="recaptcha_secret_key"><?php esc_html_e( 'Secret Key', 'wp-formy' ); ?></label>
-											<input name="recaptcha_secret_key" id="recaptcha_secret_key" type="text" value="<?php echo esc_attr( $settings['recaptcha_secret_key'] ); ?>">
-										</div>
-									</div>
-								</div>
-							<?php elseif ( 'spam' === $section && 'hcaptcha' === $subsection ) : ?>
-								<div class="wp-formy-settings-card">
-									<span class="wp-formy-settings-pill"><?php esc_html_e( 'Spam Protection', 'wp-formy' ); ?></span>
-									<h3><?php esc_html_e( 'hCaptcha', 'wp-formy' ); ?></h3>
-									<p><?php esc_html_e( 'Store hCaptcha credentials here so the builder can offer it as an available protection method.', 'wp-formy' ); ?></p>
-									<div class="wp-formy-settings-grid">
-										<div class="wp-formy-settings-field">
-											<label for="hcaptcha_site_key"><?php esc_html_e( 'Site Key', 'wp-formy' ); ?></label>
-											<input name="hcaptcha_site_key" id="hcaptcha_site_key" type="text" value="<?php echo esc_attr( $settings['hcaptcha_site_key'] ); ?>">
-										</div>
-										<div class="wp-formy-settings-field">
-											<label for="hcaptcha_secret_key"><?php esc_html_e( 'Secret Key', 'wp-formy' ); ?></label>
-											<input name="hcaptcha_secret_key" id="hcaptcha_secret_key" type="text" value="<?php echo esc_attr( $settings['hcaptcha_secret_key'] ); ?>">
-										</div>
-									</div>
-								</div>
-							<?php elseif ( 'spam' === $section && 'turnstile' === $subsection ) : ?>
-								<div class="wp-formy-settings-card">
-									<span class="wp-formy-settings-pill"><?php esc_html_e( 'Spam Protection', 'wp-formy' ); ?></span>
-									<h3><?php esc_html_e( 'Turnstile', 'wp-formy' ); ?></h3>
-									<p><?php esc_html_e( 'Cloudflare Turnstile is a good fit when you want lighter friction than reCAPTCHA while still blocking junk submissions.', 'wp-formy' ); ?></p>
-									<div class="wp-formy-settings-grid">
-										<div class="wp-formy-settings-field">
-											<label for="turnstile_site_key"><?php esc_html_e( 'Site Key', 'wp-formy' ); ?></label>
-											<input name="turnstile_site_key" id="turnstile_site_key" type="text" value="<?php echo esc_attr( $settings['turnstile_site_key'] ); ?>">
-										</div>
-										<div class="wp-formy-settings-field">
-											<label for="turnstile_secret_key"><?php esc_html_e( 'Secret Key', 'wp-formy' ); ?></label>
-											<input name="turnstile_secret_key" id="turnstile_secret_key" type="text" value="<?php echo esc_attr( $settings['turnstile_secret_key'] ); ?>">
-										</div>
-									</div>
-								</div>
-							<?php elseif ( 'spam' === $section && 'honeypot' === $subsection ) : ?>
+							<?php elseif ( 'spam' === $section ) : ?>
 								<div class="wp-formy-settings-card">
 									<span class="wp-formy-settings-pill"><?php esc_html_e( 'Spam Protection', 'wp-formy' ); ?></span>
 									<h3><?php esc_html_e( 'Honeypot', 'wp-formy' ); ?></h3>
-									<p><?php esc_html_e( 'Honeypot is the quiet default. It catches simple bots without making real people solve anything.', 'wp-formy' ); ?></p>
 									<div class="wp-formy-settings-checkbox">
 										<input name="honeypot_enabled" id="honeypot_enabled" type="checkbox" value="1" <?php checked( '1' === (string) $settings['honeypot_enabled'] ); ?>>
 										<div>
 											<strong><?php esc_html_e( 'Enable Honeypot by default', 'wp-formy' ); ?></strong>
-											<span><?php esc_html_e( 'New forms will start with invisible spam trapping enabled.', 'wp-formy' ); ?></span>
+											<span><?php esc_html_e( 'Applies to both new and existing forms because the spam check runs during submission, not only when a form is created.', 'wp-formy' ); ?></span>
 										</div>
 									</div>
+								</div>
+
+								<div class="wp-formy-settings-card">
+									<span class="wp-formy-settings-pill"><?php esc_html_e( 'Spam Protection', 'wp-formy' ); ?></span>
+									<h3><?php esc_html_e( 'Challenge Providers', 'wp-formy' ); ?></h3>
+									<div class="wp-formy-spam-layout">
+										<div class="wp-formy-provider-picker">
+											<div class="wp-formy-settings-field">
+												<label for="spam_challenge_provider"><?php esc_html_e( 'Provider', 'wp-formy' ); ?></label>
+												<select name="spam_challenge_provider" id="spam_challenge_provider">
+													<option value=""><?php esc_html_e( 'None selected', 'wp-formy' ); ?></option>
+													<option value="recaptcha" <?php selected( $settings['spam_challenge_provider'], 'recaptcha' ); ?>><?php esc_html_e( 'reCAPTCHA', 'wp-formy' ); ?></option>
+													<option value="hcaptcha" <?php selected( $settings['spam_challenge_provider'], 'hcaptcha' ); ?>><?php esc_html_e( 'hCaptcha', 'wp-formy' ); ?></option>
+													<option value="turnstile" <?php selected( $settings['spam_challenge_provider'], 'turnstile' ); ?>><?php esc_html_e( 'Turnstile', 'wp-formy' ); ?></option>
+												</select>
+												<div class="wp-formy-settings-help"><?php esc_html_e( 'Choose one challenge provider. Honeypot remains compatible with any one of these.', 'wp-formy' ); ?></div>
+											</div>
+										</div>
+
+										<div class="wp-formy-provider-editor">
+											<div class="wp-formy-settings-grid">
+												<div class="wp-formy-settings-field">
+													<label for="spam_challenge_site_key"><?php esc_html_e( 'Site Key', 'wp-formy' ); ?></label>
+													<input type="text" id="spam_challenge_site_key" value="">
+												</div>
+												<div class="wp-formy-settings-field">
+													<label for="spam_challenge_secret_key"><?php esc_html_e( 'Secret Key', 'wp-formy' ); ?></label>
+													<input type="text" id="spam_challenge_secret_key" value="">
+												</div>
+											</div>
+											<div class="wp-formy-settings-help wp-formy-settings-help-links" id="wpf-spam-provider-links" style="display:none;"></div>
+										</div>
+									</div>
+									<input type="hidden" name="recaptcha_site_key" id="recaptcha_site_key" value="<?php echo esc_attr( $settings['recaptcha_site_key'] ); ?>">
+									<input type="hidden" name="recaptcha_secret_key" id="recaptcha_secret_key" value="<?php echo esc_attr( $settings['recaptcha_secret_key'] ); ?>">
+									<input type="hidden" name="hcaptcha_site_key" id="hcaptcha_site_key" value="<?php echo esc_attr( $settings['hcaptcha_site_key'] ); ?>">
+									<input type="hidden" name="hcaptcha_secret_key" id="hcaptcha_secret_key" value="<?php echo esc_attr( $settings['hcaptcha_secret_key'] ); ?>">
+									<input type="hidden" name="turnstile_site_key" id="turnstile_site_key" value="<?php echo esc_attr( $settings['turnstile_site_key'] ); ?>">
+									<input type="hidden" name="turnstile_secret_key" id="turnstile_secret_key" value="<?php echo esc_attr( $settings['turnstile_secret_key'] ); ?>">
+									<script>
+									(function() {
+										const providerSelect = document.getElementById('spam_challenge_provider');
+										const siteKeyInput = document.getElementById('spam_challenge_site_key');
+										const secretKeyInput = document.getElementById('spam_challenge_secret_key');
+										const linksWrap = document.getElementById('wpf-spam-provider-links');
+										const providerMap = {
+											recaptcha: {
+												site: document.getElementById('recaptcha_site_key'),
+												secret: document.getElementById('recaptcha_secret_key'),
+												links: [
+													{ label: '<?php echo esc_js( __( 'Get keys', 'wp-formy' ) ); ?>', href: 'https://www.google.com/recaptcha/admin/site' },
+													{ label: '<?php echo esc_js( __( 'Setup guide', 'wp-formy' ) ); ?>', href: 'https://cloud.google.com/recaptcha/docs/create-key-website' }
+												]
+											},
+											hcaptcha: {
+												site: document.getElementById('hcaptcha_site_key'),
+												secret: document.getElementById('hcaptcha_secret_key'),
+												links: [
+													{ label: '<?php echo esc_js( __( 'Get keys', 'wp-formy' ) ); ?>', href: 'https://dashboard.hcaptcha.com/' },
+													{ label: '<?php echo esc_js( __( 'Setup guide', 'wp-formy' ) ); ?>', href: 'https://docs.hcaptcha.com/switch' }
+												]
+											},
+											turnstile: {
+												site: document.getElementById('turnstile_site_key'),
+												secret: document.getElementById('turnstile_secret_key'),
+												links: [
+													{ label: '<?php echo esc_js( __( 'Get keys', 'wp-formy' ) ); ?>', href: 'https://dash.cloudflare.com/?to=/:account/turnstile' },
+													{ label: '<?php echo esc_js( __( 'Setup guide', 'wp-formy' ) ); ?>', href: 'https://developers.cloudflare.com/turnstile/get-started/widget-management/dashboard/' }
+												]
+											}
+										};
+
+										if (!providerSelect || !siteKeyInput || !secretKeyInput || !linksWrap) {
+											return;
+										}
+
+										function syncVisibleToHidden(provider) {
+											if (!provider || !providerMap[provider]) {
+												return;
+											}
+
+											providerMap[provider].site.value = siteKeyInput.value;
+											providerMap[provider].secret.value = secretKeyInput.value;
+										}
+
+										function renderProvider(provider) {
+											if (!provider || !providerMap[provider]) {
+												siteKeyInput.value = '';
+												secretKeyInput.value = '';
+												linksWrap.style.display = 'none';
+												linksWrap.innerHTML = '';
+												return;
+											}
+
+											siteKeyInput.value = providerMap[provider].site.value || '';
+											secretKeyInput.value = providerMap[provider].secret.value || '';
+											linksWrap.innerHTML = providerMap[provider].links.map((link) => '<a href="' + link.href + '" target="_blank" rel="noopener noreferrer">' + link.label + '</a>').join('');
+											linksWrap.style.display = 'flex';
+										}
+
+										siteKeyInput.addEventListener('input', function() {
+											syncVisibleToHidden(providerSelect.value);
+										});
+
+										secretKeyInput.addEventListener('input', function() {
+											syncVisibleToHidden(providerSelect.value);
+										});
+
+										providerSelect.addEventListener('change', function() {
+											renderProvider(this.value);
+										});
+
+										if (!providerSelect.value) {
+											const firstConfigured = ['recaptcha', 'hcaptcha', 'turnstile'].find(function(provider) {
+												return providerMap[provider].site.value || providerMap[provider].secret.value;
+											});
+
+											if (firstConfigured) {
+												providerSelect.value = firstConfigured;
+											}
+										}
+
+										renderProvider(providerSelect.value);
+									})();
+									</script>
 								</div>
 							<?php elseif ( 'integrations' === $section ) : ?>
 								<div class="wp-formy-settings-card">
