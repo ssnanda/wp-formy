@@ -43,6 +43,9 @@ $initial_data = array(
 			'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
 			'asana_project_gid'     => $plugin_settings['asana_project_gid'],
 			'stripe_enabled'        => false,
+			'stripe_amount'         => '',
+			'stripe_currency'       => 'usd',
+			'stripe_description'    => 'Payment for {form_title}',
 			'form_theme'            => 'clean',
 			'background_mode'       => 'solid',
 			'background_color'      => '#ffffff',
@@ -90,6 +93,9 @@ if ( $form_id ) {
 						'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
 						'asana_project_gid'     => $plugin_settings['asana_project_gid'],
 						'stripe_enabled'        => false,
+						'stripe_amount'         => '',
+						'stripe_currency'       => 'usd',
+						'stripe_description'    => 'Payment for {form_title}',
 						'form_theme'            => 'clean',
 						'background_mode'       => 'solid',
 						'background_color'      => '#ffffff',
@@ -118,6 +124,9 @@ if ( $form_id ) {
 					'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
 					'asana_project_gid'     => $plugin_settings['asana_project_gid'],
 					'stripe_enabled'        => false,
+					'stripe_amount'         => '',
+					'stripe_currency'       => 'usd',
+					'stripe_description'    => 'Payment for {form_title}',
 					'form_theme'            => 'clean',
 					'background_mode'       => 'solid',
 					'background_color'      => '#ffffff',
@@ -371,6 +380,23 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 									<input type="checkbox" id="wpf-form-stripe-enabled" <?php checked( ! empty( $initial_data['schema']['settings']['stripe_enabled'] ) ); ?> <?php disabled( empty( $plugin_settings['stripe_publishable_key'] ) || empty( $plugin_settings['stripe_secret_key'] ) ); ?>>
 								</label>
 								<p class="wpf-setting-help"><?php echo ( ! empty( $plugin_settings['stripe_publishable_key'] ) && ! empty( $plugin_settings['stripe_secret_key'] ) ) ? esc_html__( 'Keys are connected globally. Turn this on only for forms that should collect payment.', 'wp-formy' ) : esc_html__( 'Add Stripe keys on the Stripe Payments settings page first.', 'wp-formy' ); ?></p>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Payment Amount</label>
+								<input type="number" id="wpf-form-stripe-amount" min="0" step="0.01" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['stripe_amount'] ) ? $initial_data['schema']['settings']['stripe_amount'] : '' ); ?>">
+							</div>
+							<div class="wpf-setting-row">
+								<label>Currency</label>
+								<select id="wpf-form-stripe-currency">
+									<?php foreach ( array( 'usd' => 'USD', 'eur' => 'EUR', 'gbp' => 'GBP', 'cad' => 'CAD', 'aud' => 'AUD' ) as $currency_code => $currency_label ) : ?>
+										<option value="<?php echo esc_attr( $currency_code ); ?>" <?php selected( isset( $initial_data['schema']['settings']['stripe_currency'] ) ? $initial_data['schema']['settings']['stripe_currency'] : 'usd', $currency_code ); ?>><?php echo esc_html( $currency_label ); ?></option>
+									<?php endforeach; ?>
+								</select>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Payment Description</label>
+								<input type="text" id="wpf-form-stripe-description" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['stripe_description'] ) ? $initial_data['schema']['settings']['stripe_description'] : 'Payment for {form_title}' ); ?>">
+								<p class="wpf-setting-help">Use <code>{form_title}</code> to reference the form name.</p>
 							</div>
 						</div>
 

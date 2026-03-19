@@ -249,6 +249,9 @@ function initWPFormyBuilder() {
                     asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
                     asana_project_gid: '',
                     stripe_enabled: false,
+                    stripe_amount: '',
+                    stripe_currency: 'usd',
+                    stripe_description: 'Payment for {form_title}',
                     form_theme: 'clean',
                     background_mode: 'solid',
                     background_color: '#ffffff',
@@ -287,6 +290,9 @@ function initWPFormyBuilder() {
                         asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
                         asana_project_gid: '',
                         stripe_enabled: false,
+                        stripe_amount: '',
+                        stripe_currency: 'usd',
+                        stripe_description: 'Payment for {form_title}',
                         form_theme: 'clean',
                         background_mode: 'solid',
                         background_color: '#ffffff',
@@ -325,6 +331,9 @@ function initWPFormyBuilder() {
                 asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
                 asana_project_gid: '',
                 stripe_enabled: false,
+                stripe_amount: '',
+                stripe_currency: 'usd',
+                stripe_description: 'Payment for {form_title}',
                 form_theme: 'clean',
                 background_mode: 'solid',
                 background_color: '#ffffff',
@@ -1393,6 +1402,9 @@ function initWPFormyBuilder() {
         const asanaTaskNotesInput = document.getElementById('wpf-form-asana-task-notes');
         const asanaProjectGidInput = document.getElementById('wpf-form-asana-project-gid');
         const stripeEnabledInput = document.getElementById('wpf-form-stripe-enabled');
+        const stripeAmountInput = document.getElementById('wpf-form-stripe-amount');
+        const stripeCurrencyInput = document.getElementById('wpf-form-stripe-currency');
+        const stripeDescriptionInput = document.getElementById('wpf-form-stripe-description');
         const formThemeInput = document.getElementById('wpf-form-theme');
         const backgroundModeInput = document.getElementById('wpf-form-background-mode');
         const backgroundColorInput = document.getElementById('wpf-form-background-color');
@@ -1428,6 +1440,9 @@ function initWPFormyBuilder() {
         formSchema.settings.asana_task_notes = asanaTaskNotesInput ? (asanaTaskNotesInput.value.trim() || 'A new submission was received for {form_title}.\n\n{submission_fields}') : 'A new submission was received for {form_title}.\n\n{submission_fields}';
         formSchema.settings.asana_project_gid = asanaProjectGidInput ? asanaProjectGidInput.value.trim() : '';
         formSchema.settings.stripe_enabled = stripeEnabledInput ? !!stripeEnabledInput.checked : false;
+        formSchema.settings.stripe_amount = stripeAmountInput ? (stripeAmountInput.value || '') : '';
+        formSchema.settings.stripe_currency = stripeCurrencyInput ? (stripeCurrencyInput.value || 'usd') : 'usd';
+        formSchema.settings.stripe_description = stripeDescriptionInput ? (stripeDescriptionInput.value.trim() || 'Payment for {form_title}') : 'Payment for {form_title}';
         formSchema.settings.form_theme = formThemeInput ? (formThemeInput.value || 'clean') : 'clean';
         formSchema.settings.background_mode = backgroundModeInput ? (backgroundModeInput.value || 'solid') : 'solid';
         formSchema.settings.background_color = backgroundColorInput ? (backgroundColorInput.value || '#ffffff') : '#ffffff';

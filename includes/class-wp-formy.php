@@ -45,6 +45,8 @@ class WP_Formy {
 	private function define_public_hooks() {
 		add_shortcode( 'wp_formy', array( $this, 'render_form_shortcode' ) );
 		add_action( 'template_redirect', array( $this, 'maybe_render_form_preview' ) );
+		add_action( 'wp_ajax_wpf_create_stripe_payment_intent', array( $this, 'ajax_create_stripe_payment_intent' ) );
+		add_action( 'wp_ajax_nopriv_wpf_create_stripe_payment_intent', array( $this, 'ajax_create_stripe_payment_intent' ) );
 	}
 
 	private function get_default_form_settings() {
@@ -66,6 +68,10 @@ class WP_Formy {
 			'asana_task_name'       => 'New form submission: {form_title}',
 			'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
 			'asana_project_gid'     => isset( $plugin_settings['asana_project_gid'] ) ? $plugin_settings['asana_project_gid'] : '',
+			'stripe_enabled'        => false,
+			'stripe_amount'         => '',
+			'stripe_currency'       => 'usd',
+			'stripe_description'    => 'Payment for {form_title}',
 			'form_theme'            => 'clean',
 			'background_mode'       => 'solid',
 			'background_color'      => '#ffffff',
@@ -199,6 +205,174 @@ class WP_Formy {
 
 	private function get_honeypot_field_name( $form_id ) {
 		return 'wpf_hp_' . absint( $form_id );
+	}
+
+	private function get_stripe_settings() {
+		$plugin_settings = function_exists( 'wp_formy_get_settings' ) ? wp_formy_get_settings() : array();
+
+		return array(
+			'mode'            => ! empty( $plugin_settings['stripe_mode'] ) ? sanitize_key( $plugin_settings['stripe_mode'] ) : 'test',
+			'publishable_key' => ! empty( $plugin_settings['stripe_publishable_key'] ) ? sanitize_text_field( $plugin_settings['stripe_publishable_key'] ) : '',
+			'secret_key'      => ! empty( $plugin_settings['stripe_secret_key'] ) ? sanitize_text_field( $plugin_settings['stripe_secret_key'] ) : '',
+		);
+	}
+
+	private function get_stripe_payment_config( $form, $settings ) {
+		$stripe_settings = $this->get_stripe_settings();
+		$enabled         = ! empty( $settings['stripe_enabled'] );
+		$amount          = isset( $settings['stripe_amount'] ) ? floatval( $settings['stripe_amount'] ) : 0;
+		$currency        = isset( $settings['stripe_currency'] ) ? strtolower( sanitize_key( $settings['stripe_currency'] ) ) : 'usd';
+		$description     = isset( $settings['stripe_description'] ) ? sanitize_text_field( $settings['stripe_description'] ) : 'Payment for {form_title}';
+
+		return array(
+			'enabled'         => $enabled && '' !== $stripe_settings['publishable_key'] && '' !== $stripe_settings['secret_key'] && $amount > 0,
+			'publishable_key' => $stripe_settings['publishable_key'],
+			'secret_key'      => $stripe_settings['secret_key'],
+			'amount'          => $amount,
+			'currency'        => in_array( $currency, array( 'usd', 'eur', 'gbp', 'cad', 'aud' ), true ) ? $currency : 'usd',
+			'description'     => str_replace( '{form_title}', $form->title, $description ),
+		);
+	}
+
+	private function convert_amount_to_minor_units( $amount, $currency ) {
+		$zero_decimal_currencies = array( 'jpy', 'krw', 'vnd' );
+
+		if ( in_array( strtolower( $currency ), $zero_decimal_currencies, true ) ) {
+			return (int) round( $amount );
+		}
+
+		return (int) round( $amount * 100 );
+	}
+
+	private function stripe_api_request( $path, $secret_key, $body = array(), $method = 'POST' ) {
+		$args = array(
+			'timeout' => 20,
+			'method'  => $method,
+			'headers' => array(
+				'Authorization' => 'Bearer ' . $secret_key,
+			),
+		);
+
+		if ( 'GET' === strtoupper( $method ) ) {
+			$url = add_query_arg( $body, 'https://api.stripe.com/v1/' . ltrim( $path, '/' ) );
+		} else {
+			$url          = 'https://api.stripe.com/v1/' . ltrim( $path, '/' );
+			$args['body'] = $body;
+		}
+
+		$response = wp_remote_request( $url, $args );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$payload = json_decode( wp_remote_retrieve_body( $response ), true );
+		$code    = wp_remote_retrieve_response_code( $response );
+
+		if ( $code < 200 || $code >= 300 ) {
+			$message = isset( $payload['error']['message'] ) ? sanitize_text_field( (string) $payload['error']['message'] ) : __( 'Stripe request failed.', 'wp-formy' );
+			return new WP_Error( 'stripe_request_failed', $message );
+		}
+
+		return is_array( $payload ) ? $payload : array();
+	}
+
+	public function ajax_create_stripe_payment_intent() {
+		$form_id = isset( $_POST['form_id'] ) ? absint( wp_unslash( $_POST['form_id'] ) ) : 0;
+		$nonce   = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+
+		if ( ! $form_id || ! wp_verify_nonce( $nonce, 'wpf_stripe_payment_' . $form_id ) ) {
+			wp_send_json_error( __( 'Invalid payment request.', 'wp-formy' ), 400 );
+		}
+
+		$form = $this->get_form_by_id( $form_id );
+		if ( ! $form || 'deleted' === $form->status ) {
+			wp_send_json_error( __( 'Form not found.', 'wp-formy' ), 404 );
+		}
+
+		$schema = json_decode( $form->form_schema, true );
+		if ( ! is_array( $schema ) ) {
+			wp_send_json_error( __( 'Form schema is invalid.', 'wp-formy' ), 400 );
+		}
+
+		$normalized     = $this->normalize_schema( $schema );
+		$stripe_config  = $this->get_stripe_payment_config( $form, $normalized['settings'] );
+
+		if ( ! $stripe_config['enabled'] ) {
+			wp_send_json_error( __( 'Stripe payments are not enabled for this form.', 'wp-formy' ), 400 );
+		}
+
+		$amount_minor = $this->convert_amount_to_minor_units( $stripe_config['amount'], $stripe_config['currency'] );
+		$response     = $this->stripe_api_request(
+			'payment_intents',
+			$stripe_config['secret_key'],
+			array(
+				'amount'                 => $amount_minor,
+				'currency'               => $stripe_config['currency'],
+				'description'            => $stripe_config['description'],
+				'payment_method_types[]' => 'card',
+				'metadata[form_id]'      => (string) $form_id,
+				'metadata[form_title]'   => sanitize_text_field( $form->title ),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			wp_send_json_error( $response->get_error_message(), 400 );
+		}
+
+		wp_send_json_success(
+			array(
+				'client_secret' => isset( $response['client_secret'] ) ? sanitize_text_field( (string) $response['client_secret'] ) : '',
+				'amount'        => $stripe_config['amount'],
+				'currency'      => strtoupper( $stripe_config['currency'] ),
+				'description'   => $stripe_config['description'],
+			)
+		);
+	}
+
+	private function validate_stripe_payment_submission( $form, $settings ) {
+		$stripe_config = $this->get_stripe_payment_config( $form, $settings );
+
+		if ( ! $stripe_config['enabled'] ) {
+			return true;
+		}
+
+		$payment_intent_id = isset( $_POST['wpf_stripe_payment_intent'] ) ? sanitize_text_field( wp_unslash( $_POST['wpf_stripe_payment_intent'] ) ) : '';
+		if ( '' === $payment_intent_id ) {
+			return new WP_Error( 'stripe_missing_payment', __( 'Complete the Stripe payment before submitting the form.', 'wp-formy' ) );
+		}
+
+		$payment_intent = $this->stripe_api_request(
+			'payment_intents/' . rawurlencode( $payment_intent_id ),
+			$stripe_config['secret_key'],
+			array(),
+			'GET'
+		);
+
+		if ( is_wp_error( $payment_intent ) ) {
+			return $payment_intent;
+		}
+
+		$expected_amount = $this->convert_amount_to_minor_units( $stripe_config['amount'], $stripe_config['currency'] );
+		$actual_amount   = isset( $payment_intent['amount'] ) ? absint( $payment_intent['amount'] ) : 0;
+		$actual_status   = isset( $payment_intent['status'] ) ? sanitize_key( $payment_intent['status'] ) : '';
+		$actual_currency = isset( $payment_intent['currency'] ) ? strtolower( sanitize_key( $payment_intent['currency'] ) ) : '';
+		$form_meta_id    = isset( $payment_intent['metadata']['form_id'] ) ? absint( $payment_intent['metadata']['form_id'] ) : 0;
+
+		if ( 'succeeded' !== $actual_status ) {
+			return new WP_Error( 'stripe_not_paid', __( 'Stripe payment is not complete yet.', 'wp-formy' ) );
+		}
+
+		if ( $expected_amount !== $actual_amount || strtolower( $stripe_config['currency'] ) !== $actual_currency || absint( $form->id ) !== $form_meta_id ) {
+			return new WP_Error( 'stripe_payment_mismatch', __( 'Stripe payment details do not match this form submission.', 'wp-formy' ) );
+		}
+
+		return array(
+			'payment_intent_id' => $payment_intent_id,
+			'amount'            => $stripe_config['amount'],
+			'currency'          => strtoupper( $stripe_config['currency'] ),
+			'description'       => $stripe_config['description'],
+		);
 	}
 
 	private function get_forms_table() {
@@ -542,6 +716,15 @@ class WP_Formy {
 			}
 		}
 
+		$stripe_payment_result = $this->validate_stripe_payment_submission( $form, $settings );
+		if ( is_wp_error( $stripe_payment_result ) ) {
+			return array(
+				'submitted' => true,
+				'success'   => false,
+				'message'   => $stripe_payment_result->get_error_message(),
+			);
+		}
+
 		$lead_data = array();
 		$errors    = array();
 
@@ -659,6 +842,21 @@ class WP_Formy {
 			);
 		}
 
+		if ( is_array( $stripe_payment_result ) ) {
+			$lead_data['_stripe_payment'] = array(
+				'label'             => 'Stripe Payment',
+				'type'              => 'payment',
+				'value'             => sprintf(
+					/* translators: 1: amount 2: currency */
+					__( 'Paid %1$s %2$s', 'wp-formy' ),
+					number_format_i18n( (float) $stripe_payment_result['amount'], 2 ),
+					$stripe_payment_result['currency']
+				),
+				'payment_intent_id' => $stripe_payment_result['payment_intent_id'],
+				'description'       => $stripe_payment_result['description'],
+			);
+		}
+
 		global $wpdb;
 		$leads_table = $this->get_leads_table();
 
@@ -745,6 +943,9 @@ class WP_Formy {
 
 		$challenge_enabled = $this->should_render_challenge_provider();
 		$challenge_config  = $this->get_spam_provider_config();
+		$stripe_config     = $this->get_stripe_payment_config( $form, $settings );
+		$stripe_enabled    = ! empty( $stripe_config['enabled'] );
+		$stripe_nonce      = wp_create_nonce( 'wpf_stripe_payment_' . $form_id );
 
 		$submission_result = $this->handle_form_submission( $form, $fields, $settings );
 
@@ -753,8 +954,12 @@ class WP_Formy {
 		<?php if ( $challenge_enabled ) : ?>
 			<script src="<?php echo esc_url( $challenge_config['script_url'] ); ?>" async defer></script>
 		<?php endif; ?>
+		<?php if ( $stripe_enabled ) : ?>
+			<script src="https://js.stripe.com/v3/"></script>
+		<?php endif; ?>
 		<form class="wp-formy-frontend-form wp-formy-theme-<?php echo esc_attr( $form_theme ); ?>" method="post" enctype="multipart/form-data" style="<?php echo esc_attr( $wrapper_style ); ?>padding:24px;border-radius:var(--wp-formy-radius);background:var(--wp-formy-bg);border:1px solid #dfe6ee;box-shadow:0 20px 45px rgba(18,52,77,.08);">
 			<input type="hidden" name="wpf_form_id" value="<?php echo esc_attr( $form_id ); ?>">
+			<input type="hidden" name="wpf_stripe_payment_intent" value="">
 			<?php wp_nonce_field( 'wpf_submit_form_' . $form_id, 'wpf_form_nonce' ); ?>
 			<?php if ( $this->is_honeypot_enabled() ) : ?>
 				<?php $honeypot_field_name = $this->get_honeypot_field_name( $form_id ); ?>
@@ -922,11 +1127,134 @@ class WP_Formy {
 					</div>
 				<?php endforeach; ?>
 
+				<?php if ( $stripe_enabled ) : ?>
+					<div class="wp-formy-stripe-payment" data-form-id="<?php echo esc_attr( $form_id ); ?>" data-publishable-key="<?php echo esc_attr( $stripe_config['publishable_key'] ); ?>" data-payment-nonce="<?php echo esc_attr( $stripe_nonce ); ?>">
+						<div style="margin:24px 0 16px;padding:18px;border:1px solid #dfe6ee;border-radius:calc(var(--wp-formy-radius) - 4px);background:#fff;">
+							<div style="font-size:16px;font-weight:700;color:var(--wp-formy-text);margin-bottom:6px;"><?php esc_html_e( 'Payment', 'wp-formy' ); ?></div>
+							<div style="font-size:14px;color:#4b5563;margin-bottom:14px;">
+								<?php echo esc_html( $stripe_config['description'] ); ?>
+							</div>
+							<div style="font-size:22px;font-weight:800;color:var(--wp-formy-text);margin-bottom:16px;">
+								<?php echo esc_html( strtoupper( $stripe_config['currency'] ) . ' ' . number_format_i18n( (float) $stripe_config['amount'], 2 ) ); ?>
+							</div>
+							<div class="wpf-stripe-payment-element" id="wpf-stripe-payment-element-<?php echo esc_attr( $form_id ); ?>"></div>
+							<p class="wpf-stripe-payment-message" style="display:none;margin:12px 0 0;color:#b32d2e;"></p>
+						</div>
+					</div>
+				<?php endif; ?>
+
 				<div class="wp-formy-submit" style="text-align:<?php echo esc_attr( ! empty( $settings['button_alignment'] ) ? $settings['button_alignment'] : 'left' ); ?>;">
 					<button type="submit" style="background:var(--wp-formy-primary);color:#fff;border:0;border-radius:calc(var(--wp-formy-radius) - 4px);padding:12px 20px;font-weight:700;"><?php echo esc_html( $submit_text ); ?></button>
 				</div>
 			<?php endif; ?>
 		</form>
+		<?php if ( $stripe_enabled ) : ?>
+			<script>
+			(function() {
+				const form = document.currentScript.previousElementSibling;
+				if (!form || typeof window.Stripe === 'undefined') {
+					return;
+				}
+
+				const paymentWrap = form.querySelector('.wp-formy-stripe-payment');
+				const paymentElementNode = form.querySelector('.wpf-stripe-payment-element');
+				const paymentMessage = form.querySelector('.wpf-stripe-payment-message');
+				const paymentIntentInput = form.querySelector('input[name="wpf_stripe_payment_intent"]');
+				const submitButton = form.querySelector('button[type="submit"]');
+
+				if (!paymentWrap || !paymentElementNode || !paymentIntentInput || !submitButton) {
+					return;
+				}
+
+				const stripe = window.Stripe(paymentWrap.dataset.publishableKey);
+				let elements = null;
+				let activeClientSecret = '';
+				let isSubmitting = false;
+
+				function setPaymentMessage(message) {
+					if (!paymentMessage) {
+						return;
+					}
+
+					paymentMessage.textContent = message || '';
+					paymentMessage.style.display = message ? 'block' : 'none';
+				}
+
+				async function createPaymentIntent() {
+					const formData = new FormData();
+					formData.append('action', 'wpf_create_stripe_payment_intent');
+					formData.append('form_id', paymentWrap.dataset.formId);
+					formData.append('nonce', paymentWrap.dataset.paymentNonce);
+
+					const response = await fetch('<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>', {
+						method: 'POST',
+						body: formData
+					});
+					const payload = await response.json();
+
+					if (!payload.success || !payload.data || !payload.data.client_secret) {
+						throw new Error((payload && payload.data) || 'Unable to initialize Stripe payment.');
+					}
+
+					return payload.data.client_secret;
+				}
+
+				async function ensurePaymentElement() {
+					if (elements && activeClientSecret) {
+						return;
+					}
+
+					activeClientSecret = await createPaymentIntent();
+					elements = stripe.elements({ clientSecret: activeClientSecret });
+					const paymentElement = elements.create('payment');
+					paymentElement.mount(paymentElementNode);
+				}
+
+				ensurePaymentElement().catch(function(error) {
+					setPaymentMessage(error.message || 'Unable to initialize Stripe payment.');
+				});
+
+				form.addEventListener('submit', async function(event) {
+					if (isSubmitting || paymentIntentInput.value) {
+						return;
+					}
+
+					event.preventDefault();
+					setPaymentMessage('');
+
+					if (typeof form.reportValidity === 'function' && !form.reportValidity()) {
+						return;
+					}
+
+					try {
+						submitButton.disabled = true;
+						isSubmitting = true;
+						await ensurePaymentElement();
+
+						const result = await stripe.confirmPayment({
+							elements: elements,
+							redirect: 'if_required'
+						});
+
+						if (result.error) {
+							throw new Error(result.error.message || 'Stripe payment could not be completed.');
+						}
+
+						if (!result.paymentIntent || result.paymentIntent.status !== 'succeeded') {
+							throw new Error('Stripe payment is not complete yet.');
+						}
+
+						paymentIntentInput.value = result.paymentIntent.id;
+						form.submit();
+					} catch (error) {
+						setPaymentMessage(error.message || 'Stripe payment could not be completed.');
+						submitButton.disabled = false;
+						isSubmitting = false;
+					}
+				});
+			})();
+			</script>
+		<?php endif; ?>
 		<?php
 		return ob_get_clean();
 	}
