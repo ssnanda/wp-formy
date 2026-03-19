@@ -1,8 +1,6 @@
 <?php
 /**
  * View: Add/Edit Visual Builder
- *
- * This takes over the entire screen for a modern distraction-free experience.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -10,188 +8,247 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $back_url = admin_url( 'admin.php?page=wp-formy' );
+$form_id  = isset( $_GET['form_id'] ) ? intval( $_GET['form_id'] ) : 0;
+$plugin_settings = function_exists( 'wp_formy_get_settings' ) ? wp_formy_get_settings() : array(
+	'default_notification_email'    => get_option( 'admin_email' ),
+	'default_notification_subject'  => 'New submission for {form_title}',
+	'default_notifications_enabled' => '1',
+	'asana_enabled'                 => '0',
+	'asana_project_gid'             => '',
+);
 
-$form_id = isset( $_GET['form_id'] ) ? intval( $_GET['form_id'] ) : 0;
 $initial_data = array(
 	'form_id' => 0,
 	'title'   => '',
-	'schema'  => array(),
+	'schema'  => array(
+		'version'   => 1,
+		'source'    => 'wp-formy',
+		'fields'    => array(),
+		'settings'  => array(
+			'submit_text'           => 'Submit',
+			'notifications_enabled' => '1' === (string) $plugin_settings['default_notifications_enabled'],
+			'notification_email'    => $plugin_settings['default_notification_email'],
+			'notification_subject'  => $plugin_settings['default_notification_subject'],
+			'button_alignment'      => 'left',
+			'form_description'      => '',
+			'success_message'       => 'Form submitted successfully.',
+			'confirmation_type'     => 'message',
+			'redirect_url'          => '',
+			'use_label_placeholders' => false,
+			'custom_css'            => '',
+			'asana_task_enabled'    => false,
+			'asana_task_name'       => 'New form submission: {form_title}',
+			'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
+			'asana_project_gid'     => $plugin_settings['asana_project_gid'],
+			'form_theme'            => 'clean',
+			'background_mode'       => 'solid',
+			'background_color'      => '#ffffff',
+			'background_gradient_start' => '#ffffff',
+			'background_gradient_end'   => '#f3f7fb',
+			'primary_color'         => '#0f7ac6',
+			'text_color'            => '#1f2937',
+			'input_background'      => '#ffffff',
+			'input_border_color'    => '#d7dce3',
+			'border_radius'         => '16',
+		),
+		'sureforms' => array(),
+	),
 );
 
 if ( $form_id ) {
 	global $wpdb;
 	$table = $wpdb->prefix . 'formy_forms';
-	$form  = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $table WHERE id = %d", $form_id ) );
+	$form  = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $form_id ) );
 
 	if ( $form ) {
+		$decoded_schema = json_decode( $form->form_schema, true );
+
+		if ( isset( $decoded_schema['fields'] ) && is_array( $decoded_schema['fields'] ) ) {
+			$normalized_schema = array(
+				'version'   => isset( $decoded_schema['version'] ) ? intval( $decoded_schema['version'] ) : 1,
+				'source'    => isset( $decoded_schema['source'] ) ? sanitize_text_field( $decoded_schema['source'] ) : 'wp-formy',
+				'fields'    => $decoded_schema['fields'],
+				'settings'  => isset( $decoded_schema['settings'] ) && is_array( $decoded_schema['settings'] ) ? wp_parse_args(
+					$decoded_schema['settings'],
+					array(
+						'submit_text'           => 'Submit',
+						'notifications_enabled' => '1' === (string) $plugin_settings['default_notifications_enabled'],
+						'notification_email'    => $plugin_settings['default_notification_email'],
+						'notification_subject'  => $plugin_settings['default_notification_subject'],
+						'button_alignment'      => 'left',
+						'form_description'      => '',
+						'success_message'       => 'Form submitted successfully.',
+						'confirmation_type'     => 'message',
+						'redirect_url'          => '',
+						'use_label_placeholders' => false,
+						'custom_css'            => '',
+						'asana_task_enabled'    => false,
+						'asana_task_name'       => 'New form submission: {form_title}',
+						'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
+						'asana_project_gid'     => $plugin_settings['asana_project_gid'],
+						'form_theme'            => 'clean',
+						'background_mode'       => 'solid',
+						'background_color'      => '#ffffff',
+						'background_gradient_start' => '#ffffff',
+						'background_gradient_end'   => '#f3f7fb',
+						'primary_color'         => '#0f7ac6',
+						'text_color'            => '#1f2937',
+						'input_background'      => '#ffffff',
+						'input_border_color'    => '#d7dce3',
+						'border_radius'         => '16',
+					)
+				) : array(
+					'submit_text'           => 'Submit',
+					'notifications_enabled' => '1' === (string) $plugin_settings['default_notifications_enabled'],
+					'notification_email'    => $plugin_settings['default_notification_email'],
+					'notification_subject'  => $plugin_settings['default_notification_subject'],
+					'button_alignment'      => 'left',
+					'form_description'      => '',
+					'success_message'       => 'Form submitted successfully.',
+					'confirmation_type'     => 'message',
+					'redirect_url'          => '',
+					'use_label_placeholders' => false,
+					'custom_css'            => '',
+					'asana_task_enabled'    => false,
+					'asana_task_name'       => 'New form submission: {form_title}',
+					'asana_task_notes'      => "A new submission was received for {form_title}.\n\n{submission_fields}",
+					'asana_project_gid'     => $plugin_settings['asana_project_gid'],
+					'form_theme'            => 'clean',
+					'background_mode'       => 'solid',
+					'background_color'      => '#ffffff',
+					'background_gradient_start' => '#ffffff',
+					'background_gradient_end'   => '#f3f7fb',
+					'primary_color'         => '#0f7ac6',
+					'text_color'            => '#1f2937',
+					'input_background'      => '#ffffff',
+					'input_border_color'    => '#d7dce3',
+					'border_radius'         => '16',
+				),
+				'sureforms' => isset( $decoded_schema['sureforms'] ) && is_array( $decoded_schema['sureforms'] ) ? $decoded_schema['sureforms'] : array(),
+			);
+		} elseif ( is_array( $decoded_schema ) ) {
+			$normalized_schema = array(
+				'version'   => 1,
+				'source'    => 'legacy',
+				'fields'    => $decoded_schema,
+				'settings'  => array(
+					'submit_text'           => 'Submit',
+					'notifications_enabled' => '1' === (string) $plugin_settings['default_notifications_enabled'],
+					'notification_email'    => $plugin_settings['default_notification_email'],
+					'notification_subject'  => $plugin_settings['default_notification_subject'],
+					'button_alignment'      => 'left',
+					'form_description'      => '',
+					'success_message'       => 'Form submitted successfully.',
+					'confirmation_type'     => 'message',
+					'redirect_url'          => '',
+					'use_label_placeholders' => false,
+					'custom_css'            => '',
+				),
+				'sureforms' => array(),
+			);
+		} else {
+			$normalized_schema = $initial_data['schema'];
+		}
+
 		$initial_data['form_id'] = $form_id;
 		$initial_data['title']   = $form->title;
-		$initial_data['schema']  = json_decode( $form->form_schema, true ) ?: array();
+		$initial_data['schema']  = $normalized_schema;
 	}
 }
-
 ?>
 <script>
 window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 </script>
 
-<!-- Injecting modern full-screen CSS -->
-<style>
-	#wpadminbar, #adminmenuwrap, #adminmenuback, #wpfooter { display: none !important; }
-	#wpcontent, #wpfooter { margin-left: 0 !important; padding-left: 0 !important; }
-	html.wp-toolbar { padding-top: 0 !important; }
-	
-	.wp-formy-builder-wrap {
-		position: fixed;
-		top: 0; left: 0; right: 0; bottom: 0;
-		background: #f0f0f1;
-		z-index: 999999;
-		display: flex;
-		flex-direction: column;
-		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
-	}
-
-	/* Top Toolbar */
-	.wpf-toolbar {
-		height: 60px;
-		background: #ffffff;
-		border-bottom: 1px solid #e2e4e7;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0 20px;
-		box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-	}
-	.wpf-toolbar-left, .wpf-toolbar-right { display: flex; align-items: center; gap: 10px; }
-	.wpf-toolbar-center { flex: 1; text-align: center; }
-	
-	.wpf-close-btn { text-decoration: none; color: #50575e; font-size: 20px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 4px; background: #f6f7f7; }
-	.wpf-close-btn:hover { background: #e2e4e7; color: #1d2327; }
-	.wpf-form-title-input { font-size: 16px; font-weight: 600; text-align: center; border: 1px solid transparent; background: transparent; padding: 6px 12px; border-radius: 4px; transition: 0.2s; width: 300px; }
-	.wpf-form-title-input:hover, .wpf-form-title-input:focus { border-color: #2271b1; background: #fff; outline: none; }
-
-	.wpf-btn { padding: 6px 14px; font-size: 13px; font-weight: 500; border-radius: 4px; cursor: pointer; text-decoration: none; }
-	.wpf-btn-secondary { background: #f6f7f7; border: 1px solid #dcdde1; color: #2271b1; }
-	.wpf-btn-secondary:hover { background: #f0f0f1; border-color: #c3c4c7; }
-	.wpf-btn-primary { background: #2271b1; border: 1px solid #2271b1; color: #fff; }
-	.wpf-btn-primary:hover { background: #135e96; border-color: #135e96; }
-
-	/* Main Body Layout */
-	.wpf-body { display: flex; flex: 1; overflow: hidden; }
-
-	/* Left Sidebar - Fields Library */
-	.wpf-sidebar-left {
-		width: 280px;
-		background: #ffffff;
-		border-right: 1px solid #e2e4e7;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-	}
-	.wpf-sidebar-header { padding: 15px 20px; border-bottom: 1px solid #f0f0f1; font-weight: 600; font-size: 14px; }
-	.wpf-fields-search { padding: 15px 20px; border-bottom: 1px solid #f0f0f1; }
-	.wpf-fields-search input { width: 100%; border-radius: 4px; border: 1px solid #dcdde1; padding: 6px 10px; font-size: 13px; }
-	.wpf-fields-grid { display: flex; flex-wrap: wrap; padding: 15px; gap: 10px; }
-	.wpf-field-btn { 
-		width: calc(50% - 5px); background: #f6f7f7; border: 1px solid #dcdde1; border-radius: 4px; 
-		padding: 12px 10px; text-align: center; font-size: 12px; color: #50575e; cursor: grab; transition: 0.2s;
-	}
-	.wpf-field-btn:hover { background: #fff; border-color: #2271b1; color: #2271b1; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-
-	/* Center Canvas */
-	.wpf-canvas-area {
-		flex: 1;
-		overflow-y: auto;
-		padding: 40px;
-		display: flex;
-		justify-content: center;
-		align-items: flex-start;
-	}
-	.wpf-canvas {
-		width: 100%;
-		max-width: 750px;
-		background: #ffffff;
-		border-radius: 6px;
-		box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-		padding: 40px;
-		min-height: 300px;
-	}
-	.wpf-empty-state {
-		border: 2px dashed #c3c4c7;
-		border-radius: 6px;
-		padding: 60px 20px;
-		text-align: center;
-		color: #50575e;
-		background: #f6f7f7;
-	}
-	.wpf-canvas-area.drag-over .wpf-canvas { border: 2px dashed #2271b1; background: #f0f6fc; }
-	.wpf-canvas-field { padding: 15px; border: 1px solid transparent; border-radius: 4px; position: relative; margin-bottom: 10px; cursor: pointer; transition: 0.2s; background: #fff; }
-	.wpf-canvas-field:hover { border-color: #2271b1; box-shadow: 0 0 0 1px #2271b1; }
-	.wpf-canvas-field.active { border-color: #2271b1; box-shadow: 0 0 0 1px #2271b1; background: #f0f6fc; }
-	.wpf-field-actions { position: absolute; top: -12px; right: 10px; display: none; background: #fff; border: 1px solid #2271b1; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); overflow: hidden; }
-	.wpf-canvas-field:hover .wpf-field-actions, .wpf-canvas-field.active .wpf-field-actions { display: flex; }
-	.wpf-action-btn { background: none; border: none; padding: 4px 8px; cursor: pointer; font-size: 11px; color: #50575e; border-right: 1px solid #e2e4e7; }
-	.wpf-action-btn:last-child { border-right: none; }
-	.wpf-action-btn:hover { background: #f6f7f7; color: #1d2327; }
-	.wpf-action-btn.delete { color: #d63638; }
-	.wpf-action-btn.delete:hover { background: #fcf0f1; }
-
-	/* Right Sidebar - Settings */
-	.wpf-sidebar-right {
-		width: 320px;
-		background: #ffffff;
-		border-left: 1px solid #e2e4e7;
-		overflow-y: auto;
-	}
-	.wpf-settings-tabs { display: flex; border-bottom: 1px solid #e2e4e7; }
-	.wpf-tab { flex: 1; text-align: center; padding: 15px 0; font-size: 13px; font-weight: 500; color: #50575e; cursor: pointer; border-bottom: 2px solid transparent; }
-	.wpf-tab.active { color: #2271b1; border-bottom-color: #2271b1; }
-	.wpf-settings-panels { position: relative; }
-	.wpf-settings-panel { display: none; padding: 20px; }
-	.wpf-settings-panel.active { display: block; }
-	.wpf-setting-row { margin-bottom: 20px; }
-	.wpf-setting-row label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 13px; }
-	.wpf-setting-row input[type="text"], .wpf-setting-row textarea { width: 100%; border: 1px solid #dcdde1; border-radius: 4px; padding: 8px; font-size: 13px; }
-</style>
-
 <div class="wp-formy-builder-wrap">
-	
-	<!-- Top Toolbar -->
 	<div class="wpf-toolbar">
 		<div class="wpf-toolbar-left">
-			<a href="<?php echo esc_url( $back_url ); ?>" class="wpf-close-btn" title="Back to Forms">✕</a>
-			<button class="wpf-btn wpf-btn-secondary">⚙ Settings</button>
+			<button id="wpf-toggle-fields-btn" class="wpf-toolbar-icon-btn wpf-toolbar-icon-btn-primary" type="button" title="Add Field">+</button>
+			<a href="<?php echo esc_url( $back_url ); ?>" class="wpf-toolbar-icon-btn" title="Back to Forms">←</a>
+			<button id="wpf-undo-btn" class="wpf-toolbar-icon-btn" type="button" disabled title="Undo">↶</button>
+			<button id="wpf-redo-btn" class="wpf-toolbar-icon-btn" type="button" disabled title="Redo">↷</button>
+			<button id="wpf-toggle-structure-btn" class="wpf-toolbar-icon-btn" type="button" title="Form Structure">☰</button>
 		</div>
+
 		<div class="wpf-toolbar-center">
-			<input type="text" id="wpf-form-title" class="wpf-form-title-input" value="<?php echo esc_attr( $initial_data['title'] ?: 'Untitled Form' ); ?>" placeholder="Enter Form Title...">
+			<input
+				type="text"
+				id="wpf-form-title"
+				class="wpf-form-title-input"
+				value="<?php echo esc_attr( $initial_data['title'] ); ?>"
+				placeholder="Enter a unique form title..."
+			>
 		</div>
+
 		<div class="wpf-toolbar-right">
-			<button class="wpf-btn wpf-btn-secondary">Save Draft</button>
-			<button id="wpf-save-form-btn" class="wpf-btn wpf-btn-primary">Publish Form</button>
+			<div class="wpf-toolbar-dropdown">
+				<button id="wpf-form-settings-toggle" class="wpf-btn wpf-btn-secondary wpf-settings-trigger" type="button">Form Settings <span>▾</span></button>
+				<div id="wpf-form-settings-menu" class="wpf-settings-menu">
+					<button type="button" class="wpf-settings-menu-item" data-panel="notifications">Email Notification</button>
+					<button type="button" class="wpf-settings-menu-item" data-panel="confirmation">Form Confirmation</button>
+					<button type="button" class="wpf-settings-menu-item" data-panel="spam">Spam Protection</button>
+					<button type="button" class="wpf-settings-menu-item" data-panel="integrations">Integrations</button>
+					<button type="button" class="wpf-settings-menu-item" data-panel="custom-css">Custom CSS</button>
+				</div>
+			</div>
+			<?php if ( $form_id ) : ?>
+				<a href="<?php echo esc_url( add_query_arg( array( 'wp_formy_preview' => $form_id ), home_url( '/' ) ) ); ?>" id="wpf-preview-form-link" class="wpf-btn wpf-btn-secondary" target="_blank" rel="noopener noreferrer">Preview</a>
+			<?php else : ?>
+				<button id="wpf-preview-form-link" class="wpf-btn wpf-btn-secondary" type="button" disabled>Preview</button>
+			<?php endif; ?>
+			<button id="wpf-save-draft-btn" class="wpf-btn wpf-btn-secondary" type="button">Save Draft</button>
+			<button id="wpf-save-form-btn" class="wpf-btn wpf-btn-primary" type="button">Publish Form</button>
 		</div>
 	</div>
 
-	<!-- Main Body -->
 	<div class="wpf-body">
-		
-		<!-- Left Sidebar (Fields Library) -->
-		<div class="wpf-sidebar-left">
-			<div class="wpf-sidebar-header">Add Fields</div>
+		<div class="wpf-sidebar-left is-collapsed" id="wpf-fields-sidebar">
+			<div class="wpf-sidebar-header">
+				<span>Add Fields</span>
+				<div class="wpf-sidebar-toggle-tabs">
+					<button class="wpf-sidebar-toggle-tab is-active" type="button" data-drawer-panel="fields">Fields</button>
+					<button class="wpf-sidebar-toggle-tab" type="button" data-drawer-panel="structure">Structure</button>
+				</div>
+			</div>
+			<div class="wpf-drawer-panel is-active" data-drawer-panel-content="fields">
+			<div class="wpf-fields-library" id="wpf-fields-library">
 			<div class="wpf-fields-search">
 				<input type="text" placeholder="Search fields...">
 			</div>
 			<div class="wpf-fields-grid">
 				<?php
-				$fields = array( 'Text', 'Email', 'URL', 'Textarea', 'Dropdown', 'Checkboxes', 'Multiple Choice', 'Number', 'Phone', 'Address', 'Date', 'Separator' );
-				foreach ( $fields as $field ) {
-					$type = sanitize_key( str_replace( ' ', '_', strtolower( $field ) ) );
-					echo '<div class="wpf-field-btn" draggable="true" data-type="' . esc_attr( $type ) . '" data-label="' . esc_attr( $field ) . '">❖ ' . esc_html( $field ) . '</div>';
+				$fields = array(
+					'Text'            => 'text',
+					'Email'           => 'email',
+					'URL'             => 'url',
+					'Textarea'        => 'textarea',
+					'Dropdown'        => 'select',
+					'Checkboxes'      => 'checkboxes',
+					'Multiple Choice' => 'multiple_choice',
+					'Number'          => 'number',
+					'Phone'           => 'phone',
+					'Address'         => 'address',
+					'Date'            => 'date',
+					'File Upload'     => 'file',
+					'Separator'       => 'separator',
+				);
+
+				foreach ( $fields as $field_label => $field_type ) {
+					echo '<div class="wpf-field-btn" draggable="true" data-type="' . esc_attr( $field_type ) . '" data-label="' . esc_attr( $field_label ) . '">❖ ' . esc_html( $field_label ) . '</div>';
 				}
 				?>
 			</div>
+			</div>
+			</div>
+			<div class="wpf-drawer-panel" data-drawer-panel-content="structure">
+				<div class="wpf-structure-drawer">
+					<div id="wpf-structure-list" class="wpf-structure-list">
+						<p class="wpf-structure-empty">No fields added yet.</p>
+					</div>
+				</div>
+			</div>
 		</div>
 
-		<!-- Center Canvas -->
 		<div class="wpf-canvas-area" id="wpf-dropzone">
 			<div class="wpf-canvas" id="wpf-canvas-fields">
 				<div class="wpf-empty-state">
@@ -201,29 +258,187 @@ window.wpFormyInitialData = <?php echo wp_json_encode( $initial_data ); ?>;
 			</div>
 		</div>
 
-		<!-- Right Sidebar (Inspector) -->
 		<div class="wpf-sidebar-right">
-			<div class="wpf-settings-tabs">
-				<div class="wpf-tab active" data-target="form">Form Settings</div>
-				<div class="wpf-tab" data-target="field">Field Settings</div>
+			<div class="wpf-inspector-top-tabs">
+				<div class="wpf-tab active" data-target="form">Form</div>
+				<div class="wpf-tab" data-target="field">Block</div>
 			</div>
+
 			<div class="wpf-settings-panels">
-				<!-- Form Settings Panel -->
 				<div id="wpf-panel-form" class="wpf-settings-panel active">
-					<div class="wpf-setting-row">
-						<label>Submit Button Text</label>
-						<input type="text" id="wpf-form-submit-text" value="Submit">
+					<div class="wpf-inspector-subtabs">
+						<button type="button" class="wpf-inspector-subtab is-active" data-form-subtab="general">General</button>
+						<button type="button" class="wpf-inspector-subtab" data-form-subtab="style">Style</button>
 					</div>
-					<div class="wpf-setting-row">
-						<label><input type="checkbox" id="wpf-form-notifications" checked> Enable Admin Notifications</label>
+					<div class="wpf-inspector-subpanel is-active" data-form-subpanel="general">
+						<div class="wpf-inspector-section">
+							<div class="wpf-inspector-section-title">General</div>
+							<div class="wpf-setting-row">
+								<label>Form Description</label>
+								<textarea id="wpf-form-description" rows="3"><?php echo esc_textarea( isset( $initial_data['schema']['settings']['form_description'] ) ? $initial_data['schema']['settings']['form_description'] : '' ); ?></textarea>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Submit Button Text</label>
+								<input type="text" id="wpf-form-submit-text" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['submit_text'] ) ? $initial_data['schema']['settings']['submit_text'] : 'Submit' ); ?>">
+							</div>
+							<div class="wpf-setting-row">
+								<label class="wpf-toggle-row">
+									<span>Use Labels as Placeholders</span>
+									<input type="checkbox" id="wpf-form-use-label-placeholders" <?php checked( ! empty( $initial_data['schema']['settings']['use_label_placeholders'] ) ); ?>>
+								</label>
+								<p class="wpf-setting-help">Places labels inside fields where that pattern makes sense.</p>
+							</div>
+						</div>
+
+						<div class="wpf-inspector-section" data-settings-anchor="notifications">
+							<div class="wpf-inspector-section-title">Email Notification</div>
+							<div class="wpf-setting-row">
+								<label class="wpf-toggle-row">
+									<span>Enable Admin Notifications</span>
+									<input type="checkbox" id="wpf-form-notifications" <?php checked( ! empty( $initial_data['schema']['settings']['notifications_enabled'] ) ); ?>>
+								</label>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Notification Email</label>
+								<input type="text" id="wpf-form-notification-email" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['notification_email'] ) ? $initial_data['schema']['settings']['notification_email'] : $plugin_settings['default_notification_email'] ); ?>">
+								<p class="wpf-setting-help">Use one or more emails separated by commas.</p>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Notification Subject</label>
+								<input type="text" id="wpf-form-notification-subject" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['notification_subject'] ) ? $initial_data['schema']['settings']['notification_subject'] : $plugin_settings['default_notification_subject'] ); ?>">
+								<p class="wpf-setting-help">You can use <code>{form_title}</code> in the subject.</p>
+							</div>
+						</div>
+
+						<div class="wpf-inspector-section" data-settings-anchor="confirmation">
+							<div class="wpf-inspector-section-title">Form Confirmation</div>
+							<div class="wpf-setting-row">
+								<label>Confirmation Type</label>
+								<select id="wpf-form-confirmation-type">
+									<option value="message" <?php selected( isset( $initial_data['schema']['settings']['confirmation_type'] ) ? $initial_data['schema']['settings']['confirmation_type'] : 'message', 'message' ); ?>>Show Success Message</option>
+									<option value="redirect" <?php selected( isset( $initial_data['schema']['settings']['confirmation_type'] ) ? $initial_data['schema']['settings']['confirmation_type'] : 'message', 'redirect' ); ?>>Redirect to URL</option>
+								</select>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Success Message</label>
+								<textarea id="wpf-form-success-message" rows="3"><?php echo esc_textarea( isset( $initial_data['schema']['settings']['success_message'] ) ? $initial_data['schema']['settings']['success_message'] : 'Form submitted successfully.' ); ?></textarea>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Redirect URL</label>
+								<input type="text" id="wpf-form-redirect-url" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['redirect_url'] ) ? $initial_data['schema']['settings']['redirect_url'] : '' ); ?>">
+							</div>
+						</div>
+
+						<div class="wpf-inspector-section" data-settings-anchor="spam">
+							<div class="wpf-inspector-section-title">Spam Protection</div>
+							<p class="wpf-setting-help">Honeypot and CAPTCHA providers can be managed globally on the Settings screen. This panel is reserved for per-form controls.</p>
+						</div>
+
+						<div class="wpf-inspector-section" data-settings-anchor="integrations">
+							<div class="wpf-inspector-section-title">Integrations</div>
+							<div class="wpf-setting-row">
+								<label class="wpf-toggle-row">
+									<span>Create Asana Task</span>
+									<input type="checkbox" id="wpf-form-asana-task-enabled" <?php checked( ! empty( $initial_data['schema']['settings']['asana_task_enabled'] ) ); ?> <?php disabled( empty( $plugin_settings['asana_enabled'] ) ); ?>>
+								</label>
+								<p class="wpf-setting-help"><?php echo ! empty( $plugin_settings['asana_enabled'] ) ? esc_html__( 'When enabled, each successful submission creates a new Asana task.', 'wp-formy' ) : esc_html__( 'Enable Asana globally on the Settings page first.', 'wp-formy' ); ?></p>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Asana Task Name</label>
+								<input type="text" id="wpf-form-asana-task-name" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['asana_task_name'] ) ? $initial_data['schema']['settings']['asana_task_name'] : 'New form submission: {form_title}' ); ?>">
+								<p class="wpf-setting-help">Use <code>{form_title}</code> and <code>{submission_count}</code>.</p>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Asana Task Notes</label>
+								<textarea id="wpf-form-asana-task-notes" rows="5"><?php echo esc_textarea( isset( $initial_data['schema']['settings']['asana_task_notes'] ) ? $initial_data['schema']['settings']['asana_task_notes'] : "A new submission was received for {form_title}.\n\n{submission_fields}" ); ?></textarea>
+								<p class="wpf-setting-help">Use <code>{form_title}</code> and <code>{submission_fields}</code>.</p>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Project GID Override</label>
+								<input type="text" id="wpf-form-asana-project-gid" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['asana_project_gid'] ) ? $initial_data['schema']['settings']['asana_project_gid'] : $plugin_settings['asana_project_gid'] ); ?>">
+								<p class="wpf-setting-help">Optional. Leave blank to use the global Asana project from Settings.</p>
+							</div>
+						</div>
+
+						<div class="wpf-inspector-section" data-settings-anchor="custom-css">
+							<div class="wpf-inspector-section-title">Custom CSS</div>
+							<div class="wpf-setting-row">
+								<label>CSS</label>
+								<textarea id="wpf-form-custom-css" rows="5"><?php echo esc_textarea( isset( $initial_data['schema']['settings']['custom_css'] ) ? $initial_data['schema']['settings']['custom_css'] : '' ); ?></textarea>
+							</div>
+						</div>
+					</div>
+
+					<div class="wpf-inspector-subpanel" data-form-subpanel="style">
+						<div class="wpf-inspector-section">
+							<div class="wpf-inspector-section-title">Style</div>
+							<div class="wpf-setting-row">
+								<label>Form Theme</label>
+								<select id="wpf-form-theme">
+									<option value="clean" <?php selected( isset( $initial_data['schema']['settings']['form_theme'] ) ? $initial_data['schema']['settings']['form_theme'] : 'clean', 'clean' ); ?>>Clean</option>
+									<option value="soft" <?php selected( isset( $initial_data['schema']['settings']['form_theme'] ) ? $initial_data['schema']['settings']['form_theme'] : 'clean', 'soft' ); ?>>Soft</option>
+									<option value="contrast" <?php selected( isset( $initial_data['schema']['settings']['form_theme'] ) ? $initial_data['schema']['settings']['form_theme'] : 'clean', 'contrast' ); ?>>Contrast</option>
+								</select>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Background</label>
+								<select id="wpf-form-background-mode">
+									<option value="solid" <?php selected( isset( $initial_data['schema']['settings']['background_mode'] ) ? $initial_data['schema']['settings']['background_mode'] : 'solid', 'solid' ); ?>>Solid</option>
+									<option value="gradient" <?php selected( isset( $initial_data['schema']['settings']['background_mode'] ) ? $initial_data['schema']['settings']['background_mode'] : 'solid', 'gradient' ); ?>>Gradient</option>
+								</select>
+							</div>
+							<div class="wpf-style-color-grid">
+								<div class="wpf-setting-row">
+									<label>Background Color</label>
+									<input type="color" id="wpf-form-background-color" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['background_color'] ) ? $initial_data['schema']['settings']['background_color'] : '#ffffff' ); ?>">
+								</div>
+								<div class="wpf-setting-row">
+									<label>Gradient Start</label>
+									<input type="color" id="wpf-form-gradient-start" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['background_gradient_start'] ) ? $initial_data['schema']['settings']['background_gradient_start'] : '#ffffff' ); ?>">
+								</div>
+								<div class="wpf-setting-row">
+									<label>Gradient End</label>
+									<input type="color" id="wpf-form-gradient-end" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['background_gradient_end'] ) ? $initial_data['schema']['settings']['background_gradient_end'] : '#f3f7fb' ); ?>">
+								</div>
+								<div class="wpf-setting-row">
+									<label>Primary Color</label>
+									<input type="color" id="wpf-form-primary-color" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['primary_color'] ) ? $initial_data['schema']['settings']['primary_color'] : '#0f7ac6' ); ?>">
+								</div>
+								<div class="wpf-setting-row">
+									<label>Text Color</label>
+									<input type="color" id="wpf-form-text-color" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['text_color'] ) ? $initial_data['schema']['settings']['text_color'] : '#1f2937' ); ?>">
+								</div>
+								<div class="wpf-setting-row">
+									<label>Input Surface</label>
+									<input type="color" id="wpf-form-input-background" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['input_background'] ) ? $initial_data['schema']['settings']['input_background'] : '#ffffff' ); ?>">
+								</div>
+								<div class="wpf-setting-row">
+									<label>Input Border</label>
+									<input type="color" id="wpf-form-input-border" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['input_border_color'] ) ? $initial_data['schema']['settings']['input_border_color'] : '#d7dce3' ); ?>">
+								</div>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Border Radius</label>
+								<input type="range" id="wpf-form-border-radius" min="0" max="32" step="2" value="<?php echo esc_attr( isset( $initial_data['schema']['settings']['border_radius'] ) ? $initial_data['schema']['settings']['border_radius'] : '16' ); ?>">
+								<div class="wpf-setting-help"><span id="wpf-form-border-radius-value"><?php echo esc_html( isset( $initial_data['schema']['settings']['border_radius'] ) ? $initial_data['schema']['settings']['border_radius'] : '16' ); ?></span>px</div>
+							</div>
+							<div class="wpf-setting-row">
+								<label>Button Alignment</label>
+								<select id="wpf-form-button-alignment">
+									<option value="left" <?php selected( isset( $initial_data['schema']['settings']['button_alignment'] ) ? $initial_data['schema']['settings']['button_alignment'] : 'left', 'left' ); ?>>Left</option>
+									<option value="center" <?php selected( isset( $initial_data['schema']['settings']['button_alignment'] ) ? $initial_data['schema']['settings']['button_alignment'] : 'left', 'center' ); ?>>Center</option>
+									<option value="right" <?php selected( isset( $initial_data['schema']['settings']['button_alignment'] ) ? $initial_data['schema']['settings']['button_alignment'] : 'left', 'right' ); ?>>Right</option>
+								</select>
+							</div>
+							<p class="wpf-setting-help">More visual style controls can stack here without changing the rest of the builder layout.</p>
+						</div>
 					</div>
 				</div>
-				<!-- Field Settings Panel -->
+
 				<div id="wpf-panel-field" class="wpf-settings-panel">
-					<p style="color: #646970; font-size: 13px;">Select a field in the canvas to edit its settings.</p>
+					<p style="color:#646970;font-size:13px;">Select a field in the canvas to edit its settings.</p>
 				</div>
 			</div>
 		</div>
-
 	</div>
 </div>

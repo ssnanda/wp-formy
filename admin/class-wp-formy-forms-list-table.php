@@ -6,12 +6,56 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 
 class WP_Formy_Forms_List_Table extends WP_List_Table {
 
+	private function get_status_header_markup() {
+		$selected_status = isset( $_GET['form_status'] ) ? sanitize_text_field( wp_unslash( $_GET['form_status'] ) ) : '';
+
+		ob_start();
+		?>
+		<label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+			<span><?php esc_html_e( 'Status', 'wp-formy' ); ?></span>
+			<select class="wp-formy-status-filter" name="form_status">
+				<option value=""><?php esc_html_e( 'All', 'wp-formy' ); ?></option>
+				<option value="published" <?php selected( $selected_status, 'published' ); ?>><?php esc_html_e( 'Published', 'wp-formy' ); ?></option>
+				<option value="draft" <?php selected( $selected_status, 'draft' ); ?>><?php esc_html_e( 'Draft', 'wp-formy' ); ?></option>
+				<option value="deleted" <?php selected( $selected_status, 'deleted' ); ?>><?php esc_html_e( 'Deleted', 'wp-formy' ); ?></option>
+			</select>
+		</label>
+		<?php
+		return ob_get_clean();
+	}
+
 	public function __construct() {
-		parent::__construct( array(
-			'singular' => 'form',
-			'plural'   => 'forms',
-			'ajax'     => false,
-		) );
+		parent::__construct(
+			array(
+				'singular' => 'form',
+				'plural'   => 'forms',
+				'ajax'     => false,
+			)
+		);
+	}
+
+	public function process_bulk_action() {
+		if ( 'bulk-delete' === $this->current_action() ) {
+			check_admin_referer( 'bulk-' . $this->_args['plural'] );
+
+			$form_ids = isset( $_POST['form_id'] ) ? array_map( 'intval', wp_unslash( $_POST['form_id'] ) ) : array();
+
+			if ( ! empty( $form_ids ) && current_user_can( 'manage_options' ) ) {
+				$admin = new WP_Formy_Admin();
+				$admin->bulk_delete_forms( $form_ids );
+
+				wp_safe_redirect(
+					add_query_arg(
+						array(
+							'page'    => 'wp-formy',
+							'deleted' => count( $form_ids ),
+						),
+						admin_url( 'admin.php' )
+					)
+				);
+				exit;
+			}
+		}
 	}
 
 	public function get_columns() {
@@ -19,9 +63,10 @@ class WP_Formy_Forms_List_Table extends WP_List_Table {
 			'cb'        => '<input type="checkbox" />',
 			'title'     => __( 'Title', 'wp-formy' ),
 			'shortcode' => __( 'Shortcode', 'wp-formy' ),
-			'entries'   => __( 'Entries Count', 'wp-formy' ),
+			'entries'   => __( 'Entries', 'wp-formy' ),
 			'date'      => __( 'Date & Time', 'wp-formy' ),
-			'status'    => __( 'Status', 'wp-formy' ),
+			'status'    => $this->get_status_header_markup(),
+			'actions'   => __( 'Actions', 'wp-formy' ),
 		);
 	}
 
@@ -36,17 +81,42 @@ class WP_Formy_Forms_List_Table extends WP_List_Table {
 		switch ( $column_name ) {
 			case 'shortcode':
 				return '<code>[wp_formy id="' . absint( $item['id'] ) . '"]</code>';
+
 			case 'entries':
-				// Placeholder for actual leads count query.
-				return '0';
+				$count = isset( $item['entries_count'] ) ? intval( $item['entries_count'] ) : 0;
+				$url   = add_query_arg(
+					array(
+						'page'    => 'wp-formy-leads',
+						'form_id' => absint( $item['id'] ),
+					),
+					admin_url( 'admin.php' )
+				);
+
+				return '<a href="' . esc_url( $url ) . '">' . esc_html( $count ) . '</a>';
+
 			case 'date':
-				return esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $item['created_at'] ) ) );
+				return esc_html(
+					wp_date(
+						get_option( 'date_format' ) . ' ' . get_option( 'time_format' ),
+						strtotime( $item['created_at'] )
+					)
+				);
+
 			case 'status':
-				$status = ucfirst( esc_html( $item['status'] ) );
-				$color  = $item['status'] === 'published' ? 'green' : 'gray';
-				return "<span style='color: {$color}; font-weight: bold;'>{$status}</span>";
+				$status = sanitize_text_field( $item['status'] );
+				$colors = array(
+					'published' => '#1e7e34',
+					'draft'     => '#646970',
+					'deleted'   => '#b32d2e',
+				);
+				$color  = isset( $colors[ $status ] ) ? $colors[ $status ] : '#646970';
+				return "<span style='color: {$color}; font-weight: 600;'>" . esc_html( ucfirst( $status ) ) . '</span>';
+
+			case 'actions':
+				return $this->render_actions_column( $item );
+
 			default:
-				return print_r( $item, true );
+				return '';
 		}
 	}
 
@@ -58,74 +128,235 @@ class WP_Formy_Forms_List_Table extends WP_List_Table {
 	}
 
 	protected function column_title( $item ) {
-		$edit_url = add_query_arg( array( 'page' => 'wp-formy', 'action' => 'edit', 'form_id' => $item['id'] ), admin_url( 'admin.php' ) );
-
 		return sprintf(
-			'<strong><a class="row-title" href="%1$s">%2$s</a></strong>',
-			esc_url( $edit_url ),
+			'<strong>%1$s</strong>',
 			esc_html( $item['title'] )
 		);
 	}
 
+	public function single_row( $item ) {
+		$form_id  = isset( $item['id'] ) ? absint( $item['id'] ) : 0;
+		$status   = isset( $item['status'] ) ? sanitize_text_field( $item['status'] ) : 'draft';
+		$edit_url = add_query_arg(
+			array(
+				'page'    => 'wp-formy',
+				'action'  => 'edit',
+				'form_id' => $form_id,
+			),
+			admin_url( 'admin.php' )
+		);
+
+		$row_classes = array( 'wp-formy-form-row' );
+		if ( 'deleted' === $status ) {
+			$row_classes[] = 'is-deleted';
+		}
+
+		printf(
+			'<tr class="%1$s" data-edit-url="%2$s">',
+			esc_attr( implode( ' ', $row_classes ) ),
+			esc_url( $edit_url )
+		);
+		$this->single_row_columns( $item );
+		echo '</tr>';
+	}
+
+	private function render_actions_column( $item ) {
+		$admin      = new WP_Formy_Admin();
+		$form_id    = absint( $item['id'] );
+		$status     = isset( $item['status'] ) ? sanitize_text_field( $item['status'] ) : 'draft';
+		$edit_url   = add_query_arg(
+			array(
+				'page'    => 'wp-formy',
+				'action'  => 'edit',
+				'form_id' => $form_id,
+			),
+			admin_url( 'admin.php' )
+		);
+		$preview_url   = $admin->get_form_preview_url( $form_id );
+		$duplicate_url = wp_nonce_url(
+			add_query_arg(
+				array(
+					'page'        => 'wp-formy',
+					'form_action' => 'duplicate',
+					'form_id'     => $form_id,
+				),
+				admin_url( 'admin.php' )
+			),
+			'wpf_form_action_' . $form_id
+		);
+		$export_url = wp_nonce_url(
+			add_query_arg(
+				array(
+					'action'      => 'wpf_export_form',
+					'form_id'     => $form_id,
+				),
+				admin_url( 'admin-post.php' )
+			),
+			'wpf_export_form'
+		);
+
+		if ( 'deleted' === $status ) {
+			$restore_url = wp_nonce_url(
+				add_query_arg(
+					array(
+						'page'        => 'wp-formy',
+						'form_action' => 'restore',
+						'form_id'     => $form_id,
+					),
+					admin_url( 'admin.php' )
+				),
+				'wpf_form_action_' . $form_id
+			);
+
+			return '<div class="wp-formy-inline-actions">'
+				. '<a class="button button-small" href="' . esc_url( $restore_url ) . '">' . esc_html__( 'Restore', 'wp-formy' ) . '</a>'
+				. '</div>';
+		}
+
+		$delete_url = wp_nonce_url(
+			add_query_arg(
+				array(
+					'page'        => 'wp-formy',
+					'form_action' => 'delete',
+					'form_id'     => $form_id,
+				),
+				admin_url( 'admin.php' )
+			),
+			'wpf_form_action_' . $form_id
+		);
+
+		return '<div class="wp-formy-inline-actions">'
+			. '<a class="button button-small" href="' . esc_url( $edit_url ) . '">' . esc_html__( 'Edit', 'wp-formy' ) . '</a>'
+			. '<a class="button button-small" href="' . esc_url( $preview_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Preview', 'wp-formy' ) . '</a>'
+			. '<a class="button button-small" href="' . esc_url( $export_url ) . '">' . esc_html__( 'Export', 'wp-formy' ) . '</a>'
+			. '<a class="button button-small" href="' . esc_url( $duplicate_url ) . '">' . esc_html__( 'Duplicate', 'wp-formy' ) . '</a>'
+			. '<a class="button button-small button-link-delete" href="' . esc_url( $delete_url ) . '" onclick="return confirm(\'Move this form to deleted?\');">' . esc_html__( 'Delete', 'wp-formy' ) . '</a>'
+			. '</div>';
+	}
+
+	protected function display_tablenav( $which ) {
+		if ( 'top' === $which ) {
+			echo '<div class="tablenav top">';
+			$this->pagination( $which );
+			echo '<br class="clear" /></div>';
+			return;
+		}
+
+		parent::display_tablenav( $which );
+	}
+
 	public function get_bulk_actions() {
-		return array(); // Temporarily disable bulk actions to test
+		return array(
+			'bulk-delete' => __( 'Delete', 'wp-formy' ),
+		);
 	}
 
 	public function prepare_items() {
 		global $wpdb;
+
 		$table_name = $wpdb->prefix . 'formy_forms';
+		$leads_table = $wpdb->prefix . 'formy_leads';
+		$per_page   = 20;
+		$paged      = $this->get_pagenum();
+		$offset     = ( $paged - 1 ) * $per_page;
 
-		$per_page     = 20;
-		$current_page = $this->get_pagenum();
-		$offset       = ( $current_page - 1 ) * $per_page;
-
-		// Verify table exists before querying to avoid errors on fresh setups
-		if ( $wpdb->get_var( "SHOW TABLES LIKE '$table_name'" ) !== $table_name ) {
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table_name ) ) !== $table_name ) {
 			$this->items = array();
+
+			$this->set_pagination_args(
+				array(
+					'total_items' => 0,
+					'per_page'    => $per_page,
+					'total_pages' => 0,
+				)
+			);
+
 			return;
 		}
 
 		$orderby = isset( $_GET['orderby'] ) ? sanitize_text_field( wp_unslash( $_GET['orderby'] ) ) : 'created_at';
 		$order   = isset( $_GET['order'] ) ? sanitize_text_field( wp_unslash( $_GET['order'] ) ) : 'DESC';
+		$search  = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+		$status_filter = isset( $_GET['form_status'] ) ? sanitize_text_field( wp_unslash( $_GET['form_status'] ) ) : '';
 
-		// Only allow safe orderby/order values to prevent SQL errors.
 		$allowed_orderby = array( 'title', 'created_at' );
 		if ( ! in_array( $orderby, $allowed_orderby, true ) ) {
 			$orderby = 'created_at';
 		}
 
-		$order = strtoupper( $order ) === 'ASC' ? 'ASC' : 'DESC';
+		$order = ( 'ASC' === strtoupper( $order ) ) ? 'ASC' : 'DESC';
 
-		$total_items = $wpdb->get_var( "SELECT COUNT(id) FROM {$table_name}" );
+		$where_clauses = array();
+		$where_values  = array();
 
-		$sql = $wpdb->prepare( "SELECT * FROM {$table_name} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d", $per_page, $offset );
-		$this->items = $wpdb->get_results( $sql, ARRAY_A );
+		if ( in_array( $status_filter, array( 'published', 'draft', 'deleted' ), true ) ) {
+			$where_clauses[] = 'f.status = %s';
+			$where_values[]  = $status_filter;
+		} else {
+			$where_clauses[] = 'f.status IN (%s, %s)';
+			$where_values[]  = 'published';
+			$where_values[]  = 'draft';
+		}
 
-		// Debug: show what was returned to help diagnose why list appears empty.
-		add_action( 'admin_notices', function() use ( $wpdb, $sql, $total_items ) {
-			if ( ! current_user_can( 'manage_options' ) ) {
-				return;
-			}
+		if ( '' !== $search ) {
+			$where_clauses[] = 'f.title LIKE %s';
+			$where_values[] = '%' . $wpdb->esc_like( $search ) . '%';
+		}
 
-			$items = $this->items;
-			$items_count = is_array( $items ) ? count( $items ) : 0;
+		$where = '';
+		if ( ! empty( $where_clauses ) ) {
+			$where = ' WHERE ' . implode( ' AND ', $where_clauses );
+		}
 
-			echo '<div class="notice notice-info"><p><strong>WP Formy debug:</strong> total_items=' . esc_html( $total_items ) . ' | items_count=' . esc_html( $items_count ) . '.</p>';
-			echo '<p><strong>Query:</strong> ' . esc_html( $sql ) . '</p>';
+		$base_sql = "
+			FROM {$table_name} f
+			LEFT JOIN {$leads_table} l ON f.id = l.form_id
+			{$where}
+			GROUP BY f.id
+		";
 
-			if ( $items_count > 0 ) {
-				echo '<pre>' . esc_html( print_r( $items, true ) ) . '</pre>';
-			} else {
-				echo '<p><strong>DB error:</strong> ' . esc_html( $wpdb->last_error ) . '</p>';
-			}
+		if ( ! empty( $where_values ) ) {
+			$count_sql = $wpdb->prepare(
+				"SELECT COUNT(*) FROM (
+					SELECT f.id {$base_sql}
+				) AS counted_forms",
+				$where_values
+			);
+			$total_items = (int) $wpdb->get_var( $count_sql );
 
-			echo '</div>';
-		} );
+			$query_values = array_merge( $where_values, array( $per_page, $offset ) );
+			$results_sql  = $wpdb->prepare(
+				"SELECT f.*, COUNT(l.id) AS entries_count {$base_sql} ORDER BY f.{$orderby} {$order} LIMIT %d OFFSET %d",
+				$query_values
+			);
+			$this->items = $wpdb->get_results( $results_sql, ARRAY_A );
+		} else {
+			$total_items = (int) $wpdb->get_var( "SELECT COUNT(id) FROM {$table_name}" );
+			$results_sql = $wpdb->prepare(
+				"SELECT f.*, COUNT(l.id) AS entries_count
+				FROM {$table_name} f
+				LEFT JOIN {$leads_table} l ON f.id = l.form_id
+				GROUP BY f.id
+				ORDER BY f.{$orderby} {$order}
+				LIMIT %d OFFSET %d",
+				$per_page,
+				$offset
+			);
+			$this->items = $wpdb->get_results( $results_sql, ARRAY_A );
+		}
 
-		$this->set_pagination_args( array(
-			'total_items' => $total_items,
-			'per_page'    => $per_page,
-			'total_pages' => ceil( $total_items / $per_page ),
-		) );
+		$this->_column_headers = array(
+			$this->get_columns(),
+			array(),
+			$this->get_sortable_columns(),
+		);
+
+		$this->set_pagination_args(
+			array(
+				'total_items' => $total_items,
+				'per_page'    => $per_page,
+				'total_pages' => ( $total_items > 0 ) ? (int) ceil( $total_items / $per_page ) : 0,
+			)
+		);
 	}
 }

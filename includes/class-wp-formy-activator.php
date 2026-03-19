@@ -1,20 +1,15 @@
 <?php
 
-/**
- * Fired during plugin activation.
- */
 class WP_Formy_Activator {
 
-	/**
-	 * Create custom tables.
-	 */
 	public static function activate() {
 		global $wpdb;
 
 		$charset_collate = $wpdb->get_charset_collate();
-		
-		$table_forms = $wpdb->prefix . 'formy_forms';
-		$table_leads = $wpdb->prefix . 'formy_leads';
+
+		$table_forms      = $wpdb->prefix . 'formy_forms';
+		$table_leads      = $wpdb->prefix . 'formy_leads';
+		$table_lead_notes = $wpdb->prefix . 'formy_lead_notes';
 
 		$sql = "CREATE TABLE $table_forms (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -25,16 +20,32 @@ class WP_Formy_Activator {
 			updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
 			PRIMARY KEY  (id)
 		) $charset_collate;
+
 		CREATE TABLE $table_leads (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			form_id bigint(20) unsigned NOT NULL,
 			lead_data longtext NOT NULL,
 			status varchar(50) DEFAULT 'unread' NOT NULL,
+			ip_address varchar(100) DEFAULT '' NOT NULL,
+			source_url text NULL,
+			user_agent text NULL,
 			created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
-			PRIMARY KEY  (id)
+			PRIMARY KEY  (id),
+			KEY form_id (form_id),
+			KEY status (status)
+		) $charset_collate;
+
+		CREATE TABLE $table_lead_notes (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			lead_id bigint(20) unsigned NOT NULL,
+			note longtext NOT NULL,
+			created_by bigint(20) unsigned NOT NULL DEFAULT 0,
+			created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+			PRIMARY KEY  (id),
+			KEY lead_id (lead_id)
 		) $charset_collate;";
 
-		require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
 	}
 }

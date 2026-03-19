@@ -1,33 +1,571 @@
 function initWPFormyBuilder() {
     const dropzone = document.getElementById('wpf-dropzone');
-    if (!dropzone) return;
-
     const canvas = document.getElementById('wpf-canvas-fields');
     const emptyState = document.querySelector('.wpf-empty-state');
     const fieldSettingsPanel = document.getElementById('wpf-panel-field');
-    
-    // This acts as our single source of truth (State)
+    const structureList = document.getElementById('wpf-structure-list');
+    const undoBtn = document.getElementById('wpf-undo-btn');
+    const redoBtn = document.getElementById('wpf-redo-btn');
+    const toggleFieldsBtn = document.getElementById('wpf-toggle-fields-btn');
+    const toggleStructureBtn = document.getElementById('wpf-toggle-structure-btn');
+    const fieldsSidebar = document.getElementById('wpf-fields-sidebar');
+    const previewLink = document.getElementById('wpf-preview-form-link');
+    const fieldsSearchInput = document.querySelector('.wpf-fields-search input');
+    const formSettingsToggle = document.getElementById('wpf-form-settings-toggle');
+    const formSettingsMenu = document.getElementById('wpf-form-settings-menu');
+
+    if (!dropzone || !canvas || !fieldSettingsPanel) {
+        return;
+    }
+
     let formSchema = {
+        version: 1,
+        source: 'wp-formy',
         title: 'Untitled Form',
         fields: [],
         settings: {
             submit_text: 'Submit',
-            notifications_enabled: true
-        }
+            notifications_enabled: true,
+            notification_email: '',
+            notification_subject: 'New submission for {form_title}',
+            button_alignment: 'left',
+            form_description: '',
+            success_message: 'Form submitted successfully.',
+            confirmation_type: 'message',
+            redirect_url: '',
+            use_label_placeholders: false,
+            custom_css: '',
+            asana_task_enabled: false,
+            asana_task_name: 'New form submission: {form_title}',
+            asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
+            asana_project_gid: '',
+            form_theme: 'clean',
+            background_mode: 'solid',
+            background_color: '#ffffff',
+            background_gradient_start: '#ffffff',
+            background_gradient_end: '#f3f7fb',
+            primary_color: '#0f7ac6',
+            text_color: '#1f2937',
+            input_background: '#ffffff',
+            input_border_color: '#d7dce3',
+            border_radius: 16
+        },
+        sureforms: {}
     };
 
     let activeFieldId = null;
     let formId = null;
+    let undoStack = [];
+    let redoStack = [];
+    let isRestoringHistory = false;
+    let currentDropIndex = null;
 
-    // If the server provided initial form data, hydrate state
-    if ( window.wpFormyInitialData ) {
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function cloneDeep(value) {
+        return JSON.parse(JSON.stringify(value));
+    }
+
+    function getActiveFieldIndex() {
+        if (!activeFieldId) {
+            return -1;
+        }
+
+        return formSchema.fields.findIndex((field) => field.id === activeFieldId);
+    }
+
+    function getPreferredInsertIndex() {
+        const activeIndex = getActiveFieldIndex();
+        if (activeIndex >= 0) {
+            return activeIndex + 1;
+        }
+
+        return formSchema.fields.length;
+    }
+
+    function getCanvasFieldElements() {
+        return Array.from(canvas.querySelectorAll('.wpf-canvas-field'));
+    }
+
+    function clearDropIndicator() {
+        currentDropIndex = null;
+        getCanvasFieldElements().forEach((fieldEl) => {
+            fieldEl.classList.remove('wpf-drop-before', 'wpf-drop-after');
+        });
+    }
+
+    function applyDropIndicator(insertIndex) {
+        const fieldElements = getCanvasFieldElements();
+        clearDropIndicator();
+
+        currentDropIndex = insertIndex;
+
+        if (!fieldElements.length || insertIndex === null) {
+            return;
+        }
+
+        if (insertIndex <= 0) {
+            fieldElements[0].classList.add('wpf-drop-before');
+            return;
+        }
+
+        if (insertIndex >= fieldElements.length) {
+            fieldElements[fieldElements.length - 1].classList.add('wpf-drop-after');
+            return;
+        }
+
+        fieldElements[insertIndex].classList.add('wpf-drop-before');
+    }
+
+    function getInsertIndexFromPointer(clientX, clientY) {
+        const fieldElements = getCanvasFieldElements();
+
+        if (!fieldElements.length) {
+            return 0;
+        }
+
+        for (let index = 0; index < fieldElements.length; index += 1) {
+            const fieldEl = fieldElements[index];
+            const rect = fieldEl.getBoundingClientRect();
+
+            if (clientY >= rect.top && clientY <= rect.bottom) {
+                if (clientX < rect.left + (rect.width / 2)) {
+                    return index;
+                }
+
+                return index + 1;
+            }
+
+            if (clientY < rect.top) {
+                return index;
+            }
+        }
+
+        return fieldElements.length;
+    }
+
+    function formatFieldTypeLabel(type) {
+        const labels = {
+            text: 'Text Field',
+            email: 'Email Field',
+            url: 'URL Field',
+            textarea: 'Textarea Field',
+            select: 'Dropdown Field',
+            checkboxes: 'Checkboxes Field',
+            multiple_choice: 'Multiple Choice Field',
+            number: 'Number Field',
+            phone: 'Phone Field',
+            tel: 'Phone Field',
+            address: 'Address Field',
+            date: 'Date Field',
+            file: 'File Upload',
+            separator: 'Separator'
+        };
+
+        return labels[type] || 'Field';
+    }
+
+    function normalizeField(field) {
+        const normalized = Object.assign(
+            {
+                id: 'field_' + Math.random().toString(36).slice(2, 11),
+                type: 'text',
+                label: 'Text',
+                placeholder: '',
+                required: false,
+                css_class: '',
+                width: 100,
+                help_text: '',
+                default_value: '',
+                accepted_file_types: '.pdf,.jpg,.jpeg,.png,.gif,.webp'
+            },
+            field || {}
+        );
+
+        normalized.width = parseInt(normalized.width, 10);
+        if (![100, 50, 33, 25].includes(normalized.width)) {
+            normalized.width = 100;
+        }
+
+        if (
+            normalized.type === 'select' ||
+            normalized.type === 'checkboxes' ||
+            normalized.type === 'multiple_choice'
+        ) {
+            if (!Array.isArray(normalized.options) || !normalized.options.length) {
+                normalized.options = [
+                    { label: 'Option 1', value: 'option_1' },
+                    { label: 'Option 2', value: 'option_2' }
+                ];
+            } else {
+                normalized.options = normalized.options.map((option, index) => {
+                    if (typeof option === 'object' && option !== null) {
+                        return {
+                            label: option.label || ('Option ' + (index + 1)),
+                            value: option.value || ('option_' + (index + 1))
+                        };
+                    }
+
+                    return {
+                        label: String(option),
+                        value: String(option)
+                    };
+                });
+            }
+        }
+
+        return normalized;
+    }
+
+    function normalizeIncomingSchema(initialSchema) {
+        if (Array.isArray(initialSchema)) {
+            return {
+                version: 1,
+                source: 'legacy',
+                fields: initialSchema.map(normalizeField),
+                settings: {
+                    submit_text: 'Submit',
+                    notifications_enabled: true,
+                    notification_email: '',
+                    notification_subject: 'New submission for {form_title}',
+                    button_alignment: 'left',
+                    form_description: '',
+                    success_message: 'Form submitted successfully.',
+                    confirmation_type: 'message',
+                    redirect_url: '',
+                    use_label_placeholders: false,
+                    custom_css: '',
+                    asana_task_enabled: false,
+                    asana_task_name: 'New form submission: {form_title}',
+                    asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
+                    asana_project_gid: '',
+                    form_theme: 'clean',
+                    background_mode: 'solid',
+                    background_color: '#ffffff',
+                    background_gradient_start: '#ffffff',
+                    background_gradient_end: '#f3f7fb',
+                    primary_color: '#0f7ac6',
+                    text_color: '#1f2937',
+                    input_background: '#ffffff',
+                    input_border_color: '#d7dce3',
+                    border_radius: 16
+                },
+                sureforms: {}
+            };
+        }
+
+        if (initialSchema && Array.isArray(initialSchema.fields)) {
+            return {
+                version: initialSchema.version || 1,
+                source: initialSchema.source || 'wp-formy',
+                fields: (initialSchema.fields || []).map(normalizeField),
+                settings: Object.assign(
+                    {
+                        submit_text: 'Submit',
+                        notifications_enabled: true,
+                        notification_email: '',
+                        notification_subject: 'New submission for {form_title}',
+                        button_alignment: 'left',
+                        form_description: '',
+                        success_message: 'Form submitted successfully.',
+                        confirmation_type: 'message',
+                        redirect_url: '',
+                        use_label_placeholders: false,
+                        custom_css: '',
+                        asana_task_enabled: false,
+                        asana_task_name: 'New form submission: {form_title}',
+                        asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
+                        asana_project_gid: '',
+                        form_theme: 'clean',
+                        background_mode: 'solid',
+                        background_color: '#ffffff',
+                        background_gradient_start: '#ffffff',
+                        background_gradient_end: '#f3f7fb',
+                        primary_color: '#0f7ac6',
+                        text_color: '#1f2937',
+                        input_background: '#ffffff',
+                        input_border_color: '#d7dce3',
+                        border_radius: 16
+                    },
+                    initialSchema.settings || {}
+                ),
+                sureforms: initialSchema.sureforms || {}
+            };
+        }
+
+        return {
+            version: 1,
+            source: 'wp-formy',
+            fields: [],
+            settings: {
+                submit_text: 'Submit',
+                notifications_enabled: true,
+                notification_email: '',
+                notification_subject: 'New submission for {form_title}',
+                button_alignment: 'left',
+                form_description: '',
+                success_message: 'Form submitted successfully.',
+                confirmation_type: 'message',
+                redirect_url: '',
+                use_label_placeholders: false,
+                custom_css: '',
+                asana_task_enabled: false,
+                asana_task_name: 'New form submission: {form_title}',
+                asana_task_notes: 'A new submission was received for {form_title}.\n\n{submission_fields}',
+                asana_project_gid: '',
+                form_theme: 'clean',
+                background_mode: 'solid',
+                background_color: '#ffffff',
+                background_gradient_start: '#ffffff',
+                background_gradient_end: '#f3f7fb',
+                primary_color: '#0f7ac6',
+                text_color: '#1f2937',
+                input_background: '#ffffff',
+                input_border_color: '#d7dce3',
+                border_radius: 16
+            },
+            sureforms: {}
+        };
+    }
+
+    function applyCanvasTheme() {
+        const settings = formSchema.settings || {};
+        const borderRadius = parseInt(settings.border_radius, 10) || 16;
+        const backgroundMode = settings.background_mode || 'solid';
+        const backgroundValue = backgroundMode === 'gradient'
+            ? `linear-gradient(135deg, ${settings.background_gradient_start || '#ffffff'} 0%, ${settings.background_gradient_end || '#f3f7fb'} 100%)`
+            : (settings.background_color || '#ffffff');
+
+        canvas.style.setProperty('--wpf-theme-primary', settings.primary_color || '#0f7ac6');
+        canvas.style.setProperty('--wpf-theme-text', settings.text_color || '#1f2937');
+        canvas.style.setProperty('--wpf-theme-input-bg', settings.input_background || '#ffffff');
+        canvas.style.setProperty('--wpf-theme-input-border', settings.input_border_color || '#d7dce3');
+        canvas.style.setProperty('--wpf-theme-radius', `${borderRadius}px`);
+        canvas.style.setProperty('--wpf-theme-background', backgroundValue);
+        canvas.setAttribute('data-theme', settings.form_theme || 'clean');
+    }
+
+    function getDefaultField(type, defaultLabel) {
+        const field = normalizeField({
+            id: 'field_' + Math.random().toString(36).slice(2, 11),
+            type: type,
+            label: defaultLabel,
+            placeholder: '',
+            required: false,
+            css_class: '',
+            width: 100
+        });
+
+        return field;
+    }
+
+    function snapshotState() {
+        return JSON.stringify({
+            formSchema: formSchema,
+            activeFieldId: activeFieldId
+        });
+    }
+
+    function updateUndoRedoButtons() {
+        if (undoBtn) {
+            undoBtn.disabled = undoStack.length === 0;
+        }
+
+        if (redoBtn) {
+            redoBtn.disabled = redoStack.length === 0;
+        }
+    }
+
+    function pushHistory() {
+        if (isRestoringHistory) {
+            return;
+        }
+
+        undoStack.push(snapshotState());
+
+        if (undoStack.length > 100) {
+            undoStack.shift();
+        }
+
+        redoStack = [];
+        updateUndoRedoButtons();
+    }
+
+    function restoreState(snapshot) {
+        try {
+            isRestoringHistory = true;
+
+            const parsed = JSON.parse(snapshot);
+            formSchema = normalizeIncomingSchema(parsed.formSchema || {});
+            activeFieldId = parsed.activeFieldId || null;
+
+            if (activeFieldId && !formSchema.fields.find((field) => field.id === activeFieldId)) {
+                activeFieldId = formSchema.fields.length ? formSchema.fields[0].id : null;
+            }
+
+            renderCanvas();
+
+            if (activeFieldId) {
+                const field = formSchema.fields.find((item) => item.id === activeFieldId);
+                if (field) {
+                    openFieldSettings(field);
+                }
+            } else {
+                fieldSettingsPanel.innerHTML = '<p style="color:#646970;font-size:13px;">Select a field in the canvas to edit its settings.</p>';
+            }
+        } catch (error) {
+            console.error('WP Formy history restore failed', error);
+        } finally {
+            isRestoringHistory = false;
+            updateUndoRedoButtons();
+        }
+    }
+
+    function undoAction() {
+        if (!undoStack.length) {
+            return;
+        }
+
+        redoStack.push(snapshotState());
+        restoreState(undoStack.pop());
+    }
+
+    function redoAction() {
+        if (!redoStack.length) {
+            return;
+        }
+
+        undoStack.push(snapshotState());
+        restoreState(redoStack.pop());
+    }
+
+    if (window.wpFormyInitialData) {
         formId = window.wpFormyInitialData.form_id || null;
         formSchema.title = window.wpFormyInitialData.title || formSchema.title;
-        formSchema.fields = window.wpFormyInitialData.schema || formSchema.fields;
+
+        const normalized = normalizeIncomingSchema(window.wpFormyInitialData.schema || {});
+        formSchema.version = normalized.version;
+        formSchema.source = normalized.source;
+        formSchema.fields = normalized.fields;
+        formSchema.settings = normalized.settings;
+        formSchema.sureforms = normalized.sureforms;
 
         const titleInput = document.getElementById('wpf-form-title');
         if (titleInput) {
-            titleInput.value = formSchema.title;
+            titleInput.value = window.wpFormyInitialData.title || 'Untitled Form';
+        }
+
+        const submitTextInput = document.getElementById('wpf-form-submit-text');
+        if (submitTextInput) {
+            submitTextInput.value = formSchema.settings.submit_text || 'Submit';
+        }
+
+        const notificationsInput = document.getElementById('wpf-form-notifications');
+        const notificationEmailInput = document.getElementById('wpf-form-notification-email');
+        const notificationSubjectInput = document.getElementById('wpf-form-notification-subject');
+        const descriptionInput = document.getElementById('wpf-form-description');
+        const successMessageInput = document.getElementById('wpf-form-success-message');
+        const buttonAlignmentInput = document.getElementById('wpf-form-button-alignment');
+        const confirmationTypeInput = document.getElementById('wpf-form-confirmation-type');
+        const redirectUrlInput = document.getElementById('wpf-form-redirect-url');
+        const useLabelsAsPlaceholdersInput = document.getElementById('wpf-form-use-label-placeholders');
+        const customCssInput = document.getElementById('wpf-form-custom-css');
+        if (notificationsInput) {
+            notificationsInput.checked = !!formSchema.settings.notifications_enabled;
+        }
+        if (notificationEmailInput) {
+            notificationEmailInput.value = formSchema.settings.notification_email || '';
+        }
+        if (notificationSubjectInput) {
+            notificationSubjectInput.value = formSchema.settings.notification_subject || 'New submission for {form_title}';
+        }
+        if (descriptionInput) {
+            descriptionInput.value = formSchema.settings.form_description || '';
+        }
+        if (successMessageInput) {
+            successMessageInput.value = formSchema.settings.success_message || 'Form submitted successfully.';
+        }
+        if (buttonAlignmentInput) {
+            buttonAlignmentInput.value = formSchema.settings.button_alignment || 'left';
+        }
+        if (confirmationTypeInput) {
+            confirmationTypeInput.value = formSchema.settings.confirmation_type || 'message';
+        }
+        if (redirectUrlInput) {
+            redirectUrlInput.value = formSchema.settings.redirect_url || '';
+        }
+        if (useLabelsAsPlaceholdersInput) {
+            useLabelsAsPlaceholdersInput.checked = !!formSchema.settings.use_label_placeholders;
+        }
+        if (customCssInput) {
+            customCssInput.value = formSchema.settings.custom_css || '';
+        }
+        const formThemeInput = document.getElementById('wpf-form-theme');
+        const backgroundModeInput = document.getElementById('wpf-form-background-mode');
+        const backgroundColorInput = document.getElementById('wpf-form-background-color');
+        const gradientStartInput = document.getElementById('wpf-form-gradient-start');
+        const gradientEndInput = document.getElementById('wpf-form-gradient-end');
+        const primaryColorInput = document.getElementById('wpf-form-primary-color');
+        const textColorInput = document.getElementById('wpf-form-text-color');
+        const inputBackgroundInput = document.getElementById('wpf-form-input-background');
+        const inputBorderInput = document.getElementById('wpf-form-input-border');
+        const borderRadiusInput = document.getElementById('wpf-form-border-radius');
+        const borderRadiusValue = document.getElementById('wpf-form-border-radius-value');
+        const asanaTaskEnabledInput = document.getElementById('wpf-form-asana-task-enabled');
+        const asanaTaskNameInput = document.getElementById('wpf-form-asana-task-name');
+        const asanaTaskNotesInput = document.getElementById('wpf-form-asana-task-notes');
+        const asanaProjectGidInput = document.getElementById('wpf-form-asana-project-gid');
+        if (formThemeInput) {
+            formThemeInput.value = formSchema.settings.form_theme || 'clean';
+        }
+        if (backgroundModeInput) {
+            backgroundModeInput.value = formSchema.settings.background_mode || 'solid';
+        }
+        if (backgroundColorInput) {
+            backgroundColorInput.value = formSchema.settings.background_color || '#ffffff';
+        }
+        if (gradientStartInput) {
+            gradientStartInput.value = formSchema.settings.background_gradient_start || '#ffffff';
+        }
+        if (gradientEndInput) {
+            gradientEndInput.value = formSchema.settings.background_gradient_end || '#f3f7fb';
+        }
+        if (primaryColorInput) {
+            primaryColorInput.value = formSchema.settings.primary_color || '#0f7ac6';
+        }
+        if (textColorInput) {
+            textColorInput.value = formSchema.settings.text_color || '#1f2937';
+        }
+        if (inputBackgroundInput) {
+            inputBackgroundInput.value = formSchema.settings.input_background || '#ffffff';
+        }
+        if (inputBorderInput) {
+            inputBorderInput.value = formSchema.settings.input_border_color || '#d7dce3';
+        }
+        if (borderRadiusInput) {
+            borderRadiusInput.value = String(parseInt(formSchema.settings.border_radius, 10) || 16);
+        }
+        if (borderRadiusValue) {
+            borderRadiusValue.textContent = String(parseInt(formSchema.settings.border_radius, 10) || 16);
+        }
+        if (asanaTaskEnabledInput) {
+            asanaTaskEnabledInput.checked = !!formSchema.settings.asana_task_enabled;
+        }
+        if (asanaTaskNameInput) {
+            asanaTaskNameInput.value = formSchema.settings.asana_task_name || 'New form submission: {form_title}';
+        }
+        if (asanaTaskNotesInput) {
+            asanaTaskNotesInput.value = formSchema.settings.asana_task_notes || 'A new submission was received for {form_title}.\n\n{submission_fields}';
+        }
+        if (asanaProjectGidInput) {
+            asanaProjectGidInput.value = formSchema.settings.asana_project_gid || '';
         }
 
         if (formSchema.fields.length) {
@@ -35,64 +573,558 @@ function initWPFormyBuilder() {
         }
     }
 
-    // Render initial fields (if any)
-    renderCanvas();
-    if (activeFieldId) {
-        const initialField = formSchema.fields.find(f => f.id === activeFieldId);
-        if (initialField) {
-            openFieldSettings(initialField);
+    function renderFieldPreview(field) {
+        const label = escapeHtml(field.label || '');
+        const placeholder = escapeHtml((formSchema.settings.use_label_placeholders && field.label ? field.label : field.placeholder) || '');
+
+        if (field.type === 'textarea') {
+            return `
+                <label class="wpf-preview-label">
+                    ${label} ${field.required ? '<span class="wpf-required">*</span>' : ''}
+                </label>
+                <textarea placeholder="${placeholder}" disabled class="wpf-preview-control wpf-preview-textarea"></textarea>
+            `;
+        }
+
+        if (field.type === 'select') {
+            const options = Array.isArray(field.options) ? field.options : [];
+            const renderedOptions = options.map((option) => {
+                return `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`;
+            }).join('');
+
+            return `
+                <label class="wpf-preview-label">
+                    ${label} ${field.required ? '<span class="wpf-required">*</span>' : ''}
+                </label>
+                <select disabled class="wpf-preview-control">
+                    <option>${placeholder || 'Select an option'}</option>
+                    ${renderedOptions}
+                </select>
+            `;
+        }
+
+        if (field.type === 'checkboxes' || field.type === 'multiple_choice') {
+            const options = Array.isArray(field.options) ? field.options : [];
+            const renderedOptions = options.map((option) => {
+                return `
+                    <label class="wpf-preview-choice">
+                        <input type="${field.type === 'checkboxes' ? 'checkbox' : 'radio'}" disabled>
+                        <span>${escapeHtml(option.label)}</span>
+                    </label>
+                `;
+            }).join('');
+
+            return `
+                <label class="wpf-preview-label">
+                    ${label} ${field.required ? '<span class="wpf-required">*</span>' : ''}
+                </label>
+                <div>${renderedOptions}</div>
+            `;
+        }
+
+        if (field.type === 'separator') {
+            return '<hr class="wpf-preview-separator">';
+        }
+
+        if (field.type === 'file') {
+            return `
+                <label class="wpf-preview-label">
+                    ${label} ${field.required ? '<span class="wpf-required">*</span>' : ''}
+                </label>
+                <input type="file" disabled class="wpf-preview-control">
+            `;
+        }
+
+        const inputTypeMap = {
+            email: 'email',
+            url: 'url',
+            number: 'number',
+            phone: 'tel',
+            tel: 'tel',
+            date: 'date'
+        };
+
+        const inputType = inputTypeMap[field.type] || 'text';
+
+        return `
+            <label class="wpf-preview-label">
+                ${label} ${field.required ? '<span class="wpf-required">*</span>' : ''}
+            </label>
+            <input type="${inputType}" placeholder="${placeholder}" disabled class="wpf-preview-control">
+        `;
+    }
+
+    function renderStructureList() {
+        if (!structureList) {
+            return;
+        }
+
+        if (!formSchema.fields.length) {
+            structureList.innerHTML = '<p class="wpf-structure-empty">No fields added yet.</p>';
+            return;
+        }
+
+        structureList.innerHTML = formSchema.fields.map((field, index) => `
+            <div class="wpf-structure-item ${field.id === activeFieldId ? 'active' : ''}" data-id="${field.id}">
+                <div>
+                    <div class="wpf-structure-title">${escapeHtml(formatFieldTypeLabel(field.type))}</div>
+                    <div class="wpf-structure-meta">Field #${index + 1}</div>
+                </div>
+            </div>
+        `).join('');
+
+        structureList.querySelectorAll('.wpf-structure-item').forEach((item) => {
+            item.addEventListener('click', () => {
+                const field = formSchema.fields.find((entry) => entry.id === item.dataset.id);
+                if (!field) {
+                    return;
+                }
+
+                activeFieldId = field.id;
+                renderCanvas();
+                openFieldSettings(field);
+            });
+        });
+    }
+
+    function renderCanvas() {
+        applyCanvasTheme();
+        canvas.querySelectorAll('.wpf-canvas-field').forEach((el) => el.remove());
+        canvas.querySelectorAll('.wpf-canvas-submit-preview').forEach((el) => el.remove());
+
+        if (formSchema.fields.length) {
+            if (emptyState) {
+                emptyState.style.display = 'none';
+            }
+        } else {
+            if (emptyState) {
+                emptyState.style.display = 'block';
+            }
+            activeFieldId = null;
+            fieldSettingsPanel.innerHTML = '<p style="color:#646970;font-size:13px;">Select a field in the canvas to edit its settings.</p>';
+            clearDropIndicator();
+        }
+
+        formSchema.fields.forEach((field) => {
+            const width = [100, 50, 33, 25].includes(parseInt(field.width, 10)) ? parseInt(field.width, 10) : 100;
+            const fieldEl = document.createElement('div');
+
+            fieldEl.className = `wpf-canvas-field wpf-field-width-${width} ${field.id === activeFieldId ? 'active' : ''}`;
+            fieldEl.dataset.id = field.id;
+
+            fieldEl.innerHTML = `
+                <div class="wpf-field-preview">
+                    ${renderFieldPreview(field)}
+                </div>
+                <div class="wpf-field-resize-handle" title="Resize field"></div>
+                <div class="wpf-field-actions">
+                    <button class="wpf-action-btn duplicate" type="button" title="Duplicate">⎘</button>
+                    <button class="wpf-action-btn delete" type="button" title="Delete">✕</button>
+                </div>
+            `;
+
+            fieldEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+
+                if (e.target.classList.contains('delete')) {
+                    pushHistory();
+
+                    formSchema.fields = formSchema.fields.filter((entry) => entry.id !== field.id);
+
+                    if (activeFieldId === field.id) {
+                        activeFieldId = formSchema.fields.length ? formSchema.fields[0].id : null;
+                    }
+
+                    renderCanvas();
+
+                    if (activeFieldId) {
+                        const nextField = formSchema.fields.find((entry) => entry.id === activeFieldId);
+                        if (nextField) {
+                            openFieldSettings(nextField);
+                        }
+                    }
+
+                    return;
+                }
+
+                if (e.target.classList.contains('duplicate')) {
+                    pushHistory();
+
+                    const duplicated = cloneDeep(field);
+                    duplicated.id = 'field_' + Math.random().toString(36).slice(2, 11);
+
+                    const index = formSchema.fields.findIndex((entry) => entry.id === field.id);
+                    formSchema.fields.splice(index + 1, 0, duplicated);
+                    activeFieldId = duplicated.id;
+
+                    renderCanvas();
+                    openFieldSettings(duplicated);
+                    return;
+                }
+
+                activeFieldId = field.id;
+                renderCanvas();
+                openFieldSettings(field);
+            });
+
+            canvas.appendChild(fieldEl);
+
+            const resizeHandle = fieldEl.querySelector('.wpf-field-resize-handle');
+            if (resizeHandle) {
+                resizeHandle.addEventListener('mousedown', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    const startX = event.clientX;
+                    const startWidth = parseInt(field.width, 10) || 100;
+                    const canvasWidth = canvas.getBoundingClientRect().width || 1;
+
+                    function onMouseMove(moveEvent) {
+                        const deltaPercent = ((moveEvent.clientX - startX) / canvasWidth) * 100;
+                        const rawWidth = startWidth + deltaPercent;
+                        const snapPoints = [25, 33, 50, 100];
+                        let closest = snapPoints[0];
+
+                        snapPoints.forEach((snapPoint) => {
+                            if (Math.abs(snapPoint - rawWidth) < Math.abs(closest - rawWidth)) {
+                                closest = snapPoint;
+                            }
+                        });
+
+                        field.width = closest;
+                        renderCanvas();
+                    }
+
+                    function onMouseUp() {
+                        document.removeEventListener('mousemove', onMouseMove);
+                        document.removeEventListener('mouseup', onMouseUp);
+                    }
+
+                    pushHistory();
+                    document.addEventListener('mousemove', onMouseMove);
+                    document.addEventListener('mouseup', onMouseUp);
+                });
+            }
+        });
+
+        const submitPreview = document.createElement('div');
+        const alignment = formSchema.settings.button_alignment || 'left';
+        submitPreview.className = 'wpf-canvas-submit-preview';
+        submitPreview.style.textAlign = alignment;
+        submitPreview.innerHTML = `<button type="button" class="wpf-preview-submit-btn">${escapeHtml(formSchema.settings.submit_text || 'Submit')}</button>`;
+        canvas.appendChild(submitPreview);
+
+        renderStructureList();
+
+        if (currentDropIndex !== null) {
+            applyDropIndicator(currentDropIndex);
         }
     }
 
-    // 1. Initialize Draggable Items in Left Sidebar
-    // Make field buttons draggable and also support click-to-add
-    document.querySelectorAll('.wpf-field-btn').forEach(btn => {
+    function renderOptionsEditor(field) {
+        const options = Array.isArray(field.options) ? field.options : [];
+
+        return `
+            <div class="wpf-setting-row">
+                <label>Options</label>
+                <div id="wpf-options-editor">
+                    ${options.map((option, index) => `
+                        <div class="wpf-option-row">
+                            <input type="text" class="wpf-option-label" data-index="${index}" value="${escapeHtml(option.label)}" placeholder="Label">
+                            <input type="text" class="wpf-option-value" data-index="${index}" value="${escapeHtml(option.value)}" placeholder="Value">
+                            <button type="button" class="button-link-delete wpf-option-delete" data-index="${index}">Remove</button>
+                        </div>
+                    `).join('')}
+                    <button type="button" class="button button-secondary" id="wpf-add-option">Add Option</button>
+                </div>
+            </div>
+        `;
+    }
+
+    function bindOptionsEditor(field) {
+        const addOptionBtn = document.getElementById('wpf-add-option');
+        if (addOptionBtn) {
+            addOptionBtn.addEventListener('click', () => {
+                pushHistory();
+
+                field.options.push({
+                    label: `Option ${field.options.length + 1}`,
+                    value: `option_${field.options.length + 1}`
+                });
+
+                openFieldSettings(field);
+                renderCanvas();
+            });
+        }
+
+        fieldSettingsPanel.querySelectorAll('.wpf-option-label').forEach((input) => {
+            let pushed = false;
+
+            input.addEventListener('focus', () => {
+                pushed = false;
+            });
+
+            input.addEventListener('input', (e) => {
+                if (!pushed) {
+                    pushHistory();
+                    pushed = true;
+                }
+
+                const index = parseInt(e.target.dataset.index, 10);
+                field.options[index].label = e.target.value;
+                renderCanvas();
+            });
+        });
+
+        fieldSettingsPanel.querySelectorAll('.wpf-option-value').forEach((input) => {
+            let pushed = false;
+
+            input.addEventListener('focus', () => {
+                pushed = false;
+            });
+
+            input.addEventListener('input', (e) => {
+                if (!pushed) {
+                    pushHistory();
+                    pushed = true;
+                }
+
+                const index = parseInt(e.target.dataset.index, 10);
+                field.options[index].value = e.target.value;
+            });
+        });
+
+        fieldSettingsPanel.querySelectorAll('.wpf-option-delete').forEach((button) => {
+            button.addEventListener('click', (e) => {
+                pushHistory();
+
+                const index = parseInt(e.target.dataset.index, 10);
+                field.options.splice(index, 1);
+                openFieldSettings(field);
+                renderCanvas();
+            });
+        });
+    }
+
+    function openFieldSettings(field) {
+        const fieldTab = document.querySelector('.wpf-tab[data-target="field"]');
+        if (fieldTab) {
+            fieldTab.click();
+        }
+
+        let html = `
+            <div class="wpf-setting-row">
+                <label>Field Label</label>
+                <input type="text" class="wpf-live-input" data-key="label" value="${escapeHtml(field.label || '')}">
+            </div>
+            <div class="wpf-setting-row">
+                <label>Placeholder text</label>
+                <input type="text" class="wpf-live-input" data-key="placeholder" value="${escapeHtml(field.placeholder || '')}">
+            </div>
+            <div class="wpf-setting-row">
+                <label>Help Text</label>
+                <input type="text" class="wpf-live-input" data-key="help_text" value="${escapeHtml(field.help_text || '')}">
+            </div>
+            <div class="wpf-setting-row">
+                <label>Default Value</label>
+                <input type="text" class="wpf-live-input" data-key="default_value" value="${escapeHtml(field.default_value || '')}">
+            </div>
+            <div class="wpf-setting-row">
+                <label>CSS Class</label>
+                <input type="text" class="wpf-live-input" data-key="css_class" value="${escapeHtml(field.css_class || '')}">
+            </div>
+            <div class="wpf-setting-row">
+                <label>Field Width</label>
+                <select class="wpf-live-select" data-key="width">
+                    <option value="100" ${parseInt(field.width, 10) === 100 ? 'selected' : ''}>100% - Full Width</option>
+                    <option value="50" ${parseInt(field.width, 10) === 50 ? 'selected' : ''}>50% - Half Width</option>
+                    <option value="33" ${parseInt(field.width, 10) === 33 ? 'selected' : ''}>33% - Third Width</option>
+                    <option value="25" ${parseInt(field.width, 10) === 25 ? 'selected' : ''}>25% - Quarter Width</option>
+                </select>
+            </div>
+            <div class="wpf-setting-row">
+                <label>
+                    <input type="checkbox" class="wpf-live-checkbox" data-key="required" ${field.required ? 'checked' : ''}>
+                    Required Field
+                </label>
+            </div>
+        `;
+
+        if (field.type === 'file') {
+            html += `
+                <div class="wpf-setting-row">
+                    <label>Accepted File Types</label>
+                    <input type="text" class="wpf-live-input" data-key="accepted_file_types" value="${escapeHtml(field.accepted_file_types || '.pdf,.jpg,.jpeg,.png,.gif,.webp')}">
+                    <p class="wpf-setting-help">Example: .pdf,.jpg,.png</p>
+                </div>
+            `;
+        }
+
+        if (field.type === 'select' || field.type === 'checkboxes' || field.type === 'multiple_choice') {
+            html += renderOptionsEditor(field);
+        }
+
+        fieldSettingsPanel.innerHTML = html;
+
+        fieldSettingsPanel.querySelectorAll('.wpf-live-input').forEach((input) => {
+            let pushed = false;
+
+            input.addEventListener('focus', () => {
+                pushed = false;
+            });
+
+            input.addEventListener('input', (e) => {
+                if (!pushed) {
+                    pushHistory();
+                    pushed = true;
+                }
+
+                field[e.target.dataset.key] = e.target.value;
+                renderCanvas();
+            });
+        });
+
+        fieldSettingsPanel.querySelectorAll('.wpf-live-checkbox').forEach((input) => {
+            input.addEventListener('change', (e) => {
+                pushHistory();
+                field[e.target.dataset.key] = !!e.target.checked;
+                renderCanvas();
+            });
+        });
+
+        fieldSettingsPanel.querySelectorAll('.wpf-live-select').forEach((input) => {
+            input.addEventListener('change', (e) => {
+                pushHistory();
+                field[e.target.dataset.key] = parseInt(e.target.value, 10);
+                renderCanvas();
+            });
+        });
+
+        if (field.type === 'select' || field.type === 'checkboxes' || field.type === 'multiple_choice') {
+            bindOptionsEditor(field);
+        }
+    }
+
+    function addField(type, defaultLabel, insertIndex = null) {
+        pushHistory();
+
+        const newField = getDefaultField(type, defaultLabel);
+
+        if (typeof insertIndex === 'number' && insertIndex >= 0 && insertIndex <= formSchema.fields.length) {
+            formSchema.fields.splice(insertIndex, 0, newField);
+        } else {
+            formSchema.fields.push(newField);
+        }
+
+        activeFieldId = newField.id;
+        renderCanvas();
+        openFieldSettings(newField);
+    }
+
+    document.querySelectorAll('.wpf-field-btn').forEach((btn) => {
         btn.setAttribute('draggable', 'true');
-        btn.addEventListener('dragstart', e => {
-            e.dataTransfer.effectAllowed = 'copy';
+
+        btn.addEventListener('dragstart', (e) => {
             const payload = JSON.stringify({
                 source: 'library',
                 type: btn.dataset.type,
                 label: btn.dataset.label
             });
-            e.dataTransfer.setData('application/json', payload);
+
+            e.dataTransfer.effectAllowed = 'copy';
             e.dataTransfer.setData('text/plain', payload);
+            dropzone.classList.add('drag-over');
         });
 
-        btn.addEventListener('click', () => {
-            addField(btn.dataset.type, btn.dataset.label);
+        btn.addEventListener('dragend', () => {
+            dropzone.classList.remove('drag-over');
+        });
+
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (fieldsSidebar) {
+                fieldsSidebar.classList.remove('is-collapsed');
+            }
+            addField(btn.dataset.type, btn.dataset.label, getPreferredInsertIndex());
         });
     });
 
-    // 2. Setup Dropzone behavior on Canvas
-    let dragCounter = 0;
-
-    function handleDragEnter(e) {
-        e.preventDefault();
-        dragCounter++;
-        dropzone.classList.add('drag-over');
+    if (toggleFieldsBtn && fieldsSidebar) {
+        toggleFieldsBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            fieldsSidebar.classList.toggle('is-collapsed');
+            if (!fieldsSidebar.classList.contains('is-collapsed')) {
+                const fieldsTab = document.querySelector('.wpf-sidebar-toggle-tab[data-drawer-panel="fields"]');
+                if (fieldsTab) {
+                    fieldsTab.click();
+                }
+            }
+        });
     }
 
-    function handleDragOver(e) {
+    if (toggleStructureBtn && fieldsSidebar) {
+        toggleStructureBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            fieldsSidebar.classList.remove('is-collapsed');
+            const structureTab = document.querySelector('.wpf-sidebar-toggle-tab[data-drawer-panel="structure"]');
+            if (structureTab) {
+                structureTab.click();
+            }
+        });
+    }
+
+    document.querySelectorAll('.wpf-sidebar-toggle-tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.wpf-sidebar-toggle-tab').forEach((item) => item.classList.remove('is-active'));
+            document.querySelectorAll('.wpf-drawer-panel').forEach((panel) => panel.classList.remove('is-active'));
+
+            tab.classList.add('is-active');
+            const targetPanel = document.querySelector(`.wpf-drawer-panel[data-drawer-panel-content="${tab.dataset.drawerPanel}"]`);
+            if (targetPanel) {
+                targetPanel.classList.add('is-active');
+            }
+        });
+    });
+
+    if (fieldsSearchInput) {
+        fieldsSearchInput.addEventListener('input', function() {
+            const query = this.value.trim().toLowerCase();
+            document.querySelectorAll('.wpf-field-btn').forEach((btn) => {
+                const label = (btn.dataset.label || '').toLowerCase();
+                btn.style.display = label.includes(query) ? '' : 'none';
+            });
+        });
+    }
+
+    dropzone.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('drag-over');
+    });
+
+    dropzone.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
-    }
+        dropzone.classList.add('drag-over');
 
-    function handleDragLeave(e) {
-        dragCounter--;
-        if (dragCounter <= 0) {
-            dragCounter = 0;
+        applyDropIndicator(getInsertIndexFromPointer(e.clientX, e.clientY));
+    });
+
+    dropzone.addEventListener('dragleave', (e) => {
+        if (!dropzone.contains(e.relatedTarget)) {
             dropzone.classList.remove('drag-over');
+            clearDropIndicator();
         }
-    }
+    });
 
-    function handleDrop(e) {
+    dropzone.addEventListener('drop', (e) => {
         e.preventDefault();
-        dragCounter = 0;
+        e.stopPropagation();
+
         dropzone.classList.remove('drag-over');
 
-        const payload = e.dataTransfer.getData('application/json') || e.dataTransfer.getData('text/plain');
-        console.log('Dropped payload:', payload);
+        const payload = e.dataTransfer.getData('text/plain');
+        const insertIndex = currentDropIndex !== null ? currentDropIndex : getInsertIndexFromPointer(e.clientX, e.clientY);
+        clearDropIndicator();
 
         if (!payload) {
             return;
@@ -101,177 +1133,275 @@ function initWPFormyBuilder() {
         try {
             const data = JSON.parse(payload);
             if (data.source === 'library') {
-                addField(data.type, data.label);
+                addField(data.type, data.label, insertIndex);
             }
-        } catch (err) {
-            console.log('Drop payload not valid JSON', err);
+        } catch (error) {
+            console.error('WP Formy drop payload invalid', error);
         }
-    }
-
-    [dropzone, canvas].forEach(el => {
-        el.addEventListener('dragenter', handleDragEnter);
-        el.addEventListener('dragover', handleDragOver);
-        el.addEventListener('dragleave', handleDragLeave);
-        el.addEventListener('drop', handleDrop);
     });
 
-    // 3. Add Field to State and Render
-    function addField(type, defaultLabel) {
-        const fieldId = 'field_' + Math.random().toString(36).substr(2, 9);
-        const newField = {
-            id: fieldId,
-            type: type,
-            label: defaultLabel,
-            placeholder: '',
-            required: false,
-            css_class: ''
-        };
-        
-        formSchema.fields.push(newField);
-        activeFieldId = fieldId;
-        
-        renderCanvas();
-        openFieldSettings(newField);
-    }
+    document.querySelectorAll('.wpf-tab').forEach((tab) => {
+        tab.addEventListener('click', (e) => {
+            document.querySelectorAll('.wpf-tab').forEach((item) => item.classList.remove('active'));
+            document.querySelectorAll('.wpf-settings-panel').forEach((panel) => panel.classList.remove('active'));
 
-    // 4. Render Canvas based on State
-    function renderCanvas() {
-        // Clear current rendered fields
-        document.querySelectorAll('.wpf-canvas-field').forEach(el => el.remove());
+            e.currentTarget.classList.add('active');
 
-        if (formSchema.fields.length > 0) {
-            emptyState.style.display = 'none';
-        } else {
-            emptyState.style.display = 'block';
-            activeFieldId = null;
-            fieldSettingsPanel.innerHTML = '<p style="color: #646970; font-size: 13px;">Select a field in the canvas to edit its settings.</p>';
+            const targetPanel = document.getElementById('wpf-panel-' + e.currentTarget.dataset.target);
+            if (targetPanel) {
+                targetPanel.classList.add('active');
+            }
+        });
+    });
+
+    document.querySelectorAll('.wpf-inspector-subtab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.wpf-inspector-subtab').forEach((item) => item.classList.remove('is-active'));
+            document.querySelectorAll('.wpf-inspector-subpanel').forEach((panel) => panel.classList.remove('is-active'));
+
+            tab.classList.add('is-active');
+            const targetPanel = document.querySelector(`.wpf-inspector-subpanel[data-form-subpanel="${tab.dataset.formSubtab}"]`);
+            if (targetPanel) {
+                targetPanel.classList.add('is-active');
+            }
+        });
+    });
+
+    [
+        'wpf-form-theme',
+        'wpf-form-background-mode',
+        'wpf-form-background-color',
+        'wpf-form-gradient-start',
+        'wpf-form-gradient-end',
+        'wpf-form-primary-color',
+        'wpf-form-text-color',
+        'wpf-form-input-background',
+        'wpf-form-input-border',
+        'wpf-form-border-radius',
+        'wpf-form-button-alignment',
+        'wpf-form-submit-text',
+        'wpf-form-use-label-placeholders'
+    ].forEach((id) => {
+        const input = document.getElementById(id);
+        if (!input) {
+            return;
         }
 
-        formSchema.fields.forEach((field) => {
-            const fieldEl = document.createElement('div');
-            fieldEl.className = `wpf-canvas-field ${field.id === activeFieldId ? 'active' : ''}`;
-            fieldEl.dataset.id = field.id;
-            
-            fieldEl.innerHTML = `
-                <div class="wpf-field-preview">
-                    <label style="display:block; font-weight:600; margin-bottom:6px; font-size:13px;">
-                        ${field.label} ${field.required ? '<span style="color:#d63638;">*</span>' : ''}
-                    </label>
-                    <input type="text" placeholder="${field.placeholder || ''}" disabled style="width:100%; border:1px solid #dcdde1; padding:8px; border-radius:4px; background:#f6f7f7;">
-                </div>
-                <div class="wpf-field-actions">
-                    <button class="wpf-action-btn duplicate" data-id="${field.id}" title="Duplicate">⎘</button>
-                    <button class="wpf-action-btn delete" data-id="${field.id}" title="Delete">✕</button>
-                </div>
-            `;
+        const eventName = input.type === 'range' || input.type === 'color' || input.type === 'checkbox' ? 'input' : 'change';
+        input.addEventListener(eventName, () => {
+            formSchema.settings.form_theme = document.getElementById('wpf-form-theme')?.value || 'clean';
+            formSchema.settings.background_mode = document.getElementById('wpf-form-background-mode')?.value || 'solid';
+            formSchema.settings.background_color = document.getElementById('wpf-form-background-color')?.value || '#ffffff';
+            formSchema.settings.background_gradient_start = document.getElementById('wpf-form-gradient-start')?.value || '#ffffff';
+            formSchema.settings.background_gradient_end = document.getElementById('wpf-form-gradient-end')?.value || '#f3f7fb';
+            formSchema.settings.primary_color = document.getElementById('wpf-form-primary-color')?.value || '#0f7ac6';
+            formSchema.settings.text_color = document.getElementById('wpf-form-text-color')?.value || '#1f2937';
+            formSchema.settings.input_background = document.getElementById('wpf-form-input-background')?.value || '#ffffff';
+            formSchema.settings.input_border_color = document.getElementById('wpf-form-input-border')?.value || '#d7dce3';
+            formSchema.settings.border_radius = parseInt(document.getElementById('wpf-form-border-radius')?.value || '16', 10);
+            formSchema.settings.button_alignment = document.getElementById('wpf-form-button-alignment')?.value || 'left';
+            formSchema.settings.submit_text = document.getElementById('wpf-form-submit-text')?.value?.trim() || 'Submit';
+            formSchema.settings.use_label_placeholders = !!document.getElementById('wpf-form-use-label-placeholders')?.checked;
 
-            // Canvas interactions
-            fieldEl.addEventListener('click', (e) => {
-                e.stopPropagation();
-                
-                if (e.target.classList.contains('delete')) {
-                    formSchema.fields = formSchema.fields.filter(f => f.id !== field.id);
-                    renderCanvas();
-                } else if (e.target.classList.contains('duplicate')) {
-                    const clonedField = JSON.parse(JSON.stringify(field));
-                    clonedField.id = 'field_' + Math.random().toString(36).substr(2, 9);
-                    const index = formSchema.fields.findIndex(f => f.id === field.id);
-                    formSchema.fields.splice(index + 1, 0, clonedField);
-                    activeFieldId = clonedField.id;
-                    renderCanvas();
-                    openFieldSettings(clonedField);
-                } else {
-                    activeFieldId = field.id;
-                    renderCanvas();
-                    openFieldSettings(field);
+            const radiusValue = document.getElementById('wpf-form-border-radius-value');
+            if (radiusValue) {
+                radiusValue.textContent = String(formSchema.settings.border_radius);
+            }
+
+            renderCanvas();
+        });
+    });
+
+    if (formSettingsToggle && formSettingsMenu) {
+        formSettingsToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            formSettingsMenu.classList.toggle('is-open');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!formSettingsMenu.contains(e.target) && !formSettingsToggle.contains(e.target)) {
+                formSettingsMenu.classList.remove('is-open');
+            }
+        });
+
+        formSettingsMenu.querySelectorAll('.wpf-settings-menu-item').forEach((button) => {
+            button.addEventListener('click', () => {
+                formSettingsMenu.classList.remove('is-open');
+                const formTab = document.querySelector('.wpf-tab[data-target="form"]');
+                const generalSubtab = document.querySelector('.wpf-inspector-subtab[data-form-subtab="general"]');
+
+                if (formTab) {
+                    formTab.click();
+                }
+
+                if (generalSubtab) {
+                    generalSubtab.click();
+                }
+
+                const section = document.querySelector(`[data-settings-anchor="${button.dataset.panel}"]`);
+                if (section) {
+                    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             });
-
-            canvas.appendChild(fieldEl);
         });
     }
 
-    // 5. Dynamic Field Settings Panel
-    function openFieldSettings(field) {
-        document.querySelector('.wpf-tab[data-target="field"]').click();
-
-        fieldSettingsPanel.innerHTML = `
-            <div class="wpf-setting-row"><label>Field Label</label>
-                <input type="text" class="wpf-live-input" data-key="label" value="${field.label}">
-            </div>
-            <div class="wpf-setting-row"><label>Placeholder text</label>
-                <input type="text" class="wpf-live-input" data-key="placeholder" value="${field.placeholder || ''}">
-            </div>
-            <div class="wpf-setting-row"><label>
-                <input type="checkbox" class="wpf-live-checkbox" data-key="required" ${field.required ? 'checked' : ''}> Required Field</label>
-            </div>
-        `;
-
-        // Two-way data binding
-        fieldSettingsPanel.querySelectorAll('.wpf-live-input, .wpf-live-checkbox').forEach(input => {
-            input.addEventListener('input', (e) => {
-                field[e.target.dataset.key] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-                renderCanvas();
-            });
+    if (undoBtn) {
+        undoBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            undoAction();
         });
     }
 
-    // 6. Sidebar Tabs Logic
-    document.querySelectorAll('.wpf-tab').forEach(tab => {
-        tab.addEventListener('click', (e) => {
-            document.querySelectorAll('.wpf-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.wpf-settings-panel').forEach(p => p.classList.remove('active'));
-            e.target.classList.add('active');
-            document.getElementById('wpf-panel-' + e.target.dataset.target).classList.add('active');
+    if (redoBtn) {
+        redoBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            redoAction();
         });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+        if (!cmdOrCtrl) {
+            return;
+        }
+
+        if (e.key.toLowerCase() === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            undoAction();
+        }
+
+        if (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) {
+            e.preventDefault();
+            redoAction();
+        }
     });
 
-    // 7. Save form
     const saveBtn = document.getElementById('wpf-save-form-btn');
     if (saveBtn) {
         saveBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            saveForm();
+            saveForm('published');
         });
     }
 
-    function saveForm() {
+    const draftBtn = document.getElementById('wpf-save-draft-btn');
+    if (draftBtn) {
+        draftBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            saveForm('draft');
+        });
+    }
+
+    function saveForm(status) {
         const titleInput = document.getElementById('wpf-form-title');
+        const submitTextInput = document.getElementById('wpf-form-submit-text');
+        const notificationsInput = document.getElementById('wpf-form-notifications');
+        const notificationEmailInput = document.getElementById('wpf-form-notification-email');
+        const notificationSubjectInput = document.getElementById('wpf-form-notification-subject');
+        const descriptionInput = document.getElementById('wpf-form-description');
+        const successMessageInput = document.getElementById('wpf-form-success-message');
+        const buttonAlignmentInput = document.getElementById('wpf-form-button-alignment');
+        const confirmationTypeInput = document.getElementById('wpf-form-confirmation-type');
+        const redirectUrlInput = document.getElementById('wpf-form-redirect-url');
+        const useLabelsAsPlaceholdersInput = document.getElementById('wpf-form-use-label-placeholders');
+        const customCssInput = document.getElementById('wpf-form-custom-css');
+        const asanaTaskEnabledInput = document.getElementById('wpf-form-asana-task-enabled');
+        const asanaTaskNameInput = document.getElementById('wpf-form-asana-task-name');
+        const asanaTaskNotesInput = document.getElementById('wpf-form-asana-task-notes');
+        const asanaProjectGidInput = document.getElementById('wpf-form-asana-project-gid');
+        const formThemeInput = document.getElementById('wpf-form-theme');
+        const backgroundModeInput = document.getElementById('wpf-form-background-mode');
+        const backgroundColorInput = document.getElementById('wpf-form-background-color');
+        const gradientStartInput = document.getElementById('wpf-form-gradient-start');
+        const gradientEndInput = document.getElementById('wpf-form-gradient-end');
+        const primaryColorInput = document.getElementById('wpf-form-primary-color');
+        const textColorInput = document.getElementById('wpf-form-text-color');
+        const inputBackgroundInput = document.getElementById('wpf-form-input-background');
+        const inputBorderInput = document.getElementById('wpf-form-input-border');
+        const borderRadiusInput = document.getElementById('wpf-form-border-radius');
+
         const title = titleInput ? titleInput.value.trim() : '';
 
-        if ( ! title ) {
-            window.alert('Please enter a form title.');
+        if (!title || title === 'Untitled Form') {
+            window.alert('Please enter a unique form title.');
             return;
         }
 
+        formSchema.title = title;
+        formSchema.settings.submit_text = submitTextInput ? (submitTextInput.value.trim() || 'Submit') : 'Submit';
+        formSchema.settings.notifications_enabled = notificationsInput ? !!notificationsInput.checked : true;
+        formSchema.settings.notification_email = notificationEmailInput ? notificationEmailInput.value.trim() : '';
+        formSchema.settings.notification_subject = notificationSubjectInput ? (notificationSubjectInput.value.trim() || 'New submission for {form_title}') : 'New submission for {form_title}';
+        formSchema.settings.form_description = descriptionInput ? descriptionInput.value.trim() : '';
+        formSchema.settings.success_message = successMessageInput ? (successMessageInput.value.trim() || 'Form submitted successfully.') : 'Form submitted successfully.';
+        formSchema.settings.button_alignment = buttonAlignmentInput ? (buttonAlignmentInput.value || 'left') : 'left';
+        formSchema.settings.confirmation_type = confirmationTypeInput ? (confirmationTypeInput.value || 'message') : 'message';
+        formSchema.settings.redirect_url = redirectUrlInput ? redirectUrlInput.value.trim() : '';
+        formSchema.settings.use_label_placeholders = useLabelsAsPlaceholdersInput ? !!useLabelsAsPlaceholdersInput.checked : false;
+        formSchema.settings.custom_css = customCssInput ? customCssInput.value.trim() : '';
+        formSchema.settings.asana_task_enabled = asanaTaskEnabledInput ? !!asanaTaskEnabledInput.checked : false;
+        formSchema.settings.asana_task_name = asanaTaskNameInput ? (asanaTaskNameInput.value.trim() || 'New form submission: {form_title}') : 'New form submission: {form_title}';
+        formSchema.settings.asana_task_notes = asanaTaskNotesInput ? (asanaTaskNotesInput.value.trim() || 'A new submission was received for {form_title}.\n\n{submission_fields}') : 'A new submission was received for {form_title}.\n\n{submission_fields}';
+        formSchema.settings.asana_project_gid = asanaProjectGidInput ? asanaProjectGidInput.value.trim() : '';
+        formSchema.settings.form_theme = formThemeInput ? (formThemeInput.value || 'clean') : 'clean';
+        formSchema.settings.background_mode = backgroundModeInput ? (backgroundModeInput.value || 'solid') : 'solid';
+        formSchema.settings.background_color = backgroundColorInput ? (backgroundColorInput.value || '#ffffff') : '#ffffff';
+        formSchema.settings.background_gradient_start = gradientStartInput ? (gradientStartInput.value || '#ffffff') : '#ffffff';
+        formSchema.settings.background_gradient_end = gradientEndInput ? (gradientEndInput.value || '#f3f7fb') : '#f3f7fb';
+        formSchema.settings.primary_color = primaryColorInput ? (primaryColorInput.value || '#0f7ac6') : '#0f7ac6';
+        formSchema.settings.text_color = textColorInput ? (textColorInput.value || '#1f2937') : '#1f2937';
+        formSchema.settings.input_background = inputBackgroundInput ? (inputBackgroundInput.value || '#ffffff') : '#ffffff';
+        formSchema.settings.input_border_color = inputBorderInput ? (inputBorderInput.value || '#d7dce3') : '#d7dce3';
+        formSchema.settings.border_radius = borderRadiusInput ? parseInt(borderRadiusInput.value || '16', 10) : 16;
+
         const payload = {
             action: 'wpf_save_form',
-            nonce: (window.wpFormyBuilder && window.wpFormyBuilder.nonce_save) ? window.wpFormyBuilder.nonce_save : '',
+            nonce: window.wpFormyBuilder ? window.wpFormyBuilder.nonce_save : '',
             form_id: formId,
             title: title,
             schema: JSON.stringify(formSchema),
-            status: 'published'
+            status: status
         };
 
         const formData = new FormData();
-        Object.keys(payload).forEach(key => formData.append(key, payload[key]));
+        Object.keys(payload).forEach((key) => formData.append(key, payload[key]));
 
-        fetch((window.wpFormyBuilder && window.wpFormyBuilder.ajaxurl) ? window.wpFormyBuilder.ajaxurl : ajaxurl, {
+        fetch(window.wpFormyBuilder ? window.wpFormyBuilder.ajaxurl : ajaxurl, {
             method: 'POST',
-            body: formData,
+            body: formData
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                formId = data.data.form_id;
-                window.alert('Form saved successfully.');
-            } else {
-                window.alert(data.data || 'Unable to save form.');
-            }
-        })
-        .catch(() => {
-            window.alert('Unable to save form.');
-        });
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.success) {
+                    formId = data.data.form_id;
+                    if (previewLink) {
+                        if (previewLink.tagName.toLowerCase() === 'a') {
+                            previewLink.href = data.data.preview_url;
+                        } else {
+                            previewLink.outerHTML = `<a href="${data.data.preview_url}" id="wpf-preview-form-link" class="wpf-btn wpf-btn-secondary" target="_blank" rel="noopener noreferrer">Preview</a>`;
+                        }
+                    }
+                    window.alert(status === 'draft' ? 'Draft saved successfully.' : 'Form saved successfully.');
+                } else {
+                    window.alert(data.data || 'Unable to save form.');
+                }
+            })
+            .catch(() => {
+                window.alert('Unable to save form.');
+            });
+    }
+
+    updateUndoRedoButtons();
+    renderCanvas();
+
+    if (activeFieldId) {
+        const initialField = formSchema.fields.find((field) => field.id === activeFieldId);
+        if (initialField) {
+            openFieldSettings(initialField);
+        }
     }
 }
 
