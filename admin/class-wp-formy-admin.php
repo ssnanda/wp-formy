@@ -1512,8 +1512,8 @@ class WP_Formy_Admin {
 												<select name="spam_challenge_provider" id="spam_challenge_provider">
 													<option value=""><?php esc_html_e( 'None selected', 'wp-formy' ); ?></option>
 													<option value="recaptcha" <?php selected( $settings['spam_challenge_provider'], 'recaptcha' ); ?>><?php esc_html_e( 'reCAPTCHA', 'wp-formy' ); ?></option>
-													<option value="hcaptcha" <?php selected( $settings['spam_challenge_provider'], 'hcaptcha' ); ?>><?php esc_html_e( 'hCaptcha', 'wp-formy' ); ?></option>
-													<option value="turnstile" <?php selected( $settings['spam_challenge_provider'], 'turnstile' ); ?>><?php esc_html_e( 'Turnstile', 'wp-formy' ); ?></option>
+													<option value="hcaptcha" <?php selected( $settings['spam_challenge_provider'], 'hcaptcha' ); ?>><?php esc_html_e( 'hCaptcha by Intuition Machines', 'wp-formy' ); ?></option>
+													<option value="turnstile" <?php selected( $settings['spam_challenge_provider'], 'turnstile' ); ?>><?php esc_html_e( 'Turnstile by Cloudflare', 'wp-formy' ); ?></option>
 												</select>
 												<div class="wp-formy-settings-help"><?php esc_html_e( 'Choose one challenge provider. Honeypot remains compatible with any one of these.', 'wp-formy' ); ?></div>
 											</div>
