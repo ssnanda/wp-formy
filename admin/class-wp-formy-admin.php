@@ -1266,10 +1266,6 @@ class WP_Formy_Admin {
 				'label' => __( 'General Settings', 'wp-formy' ),
 				'icon'  => 'admin-generic',
 			),
-			'validation'   => array(
-				'label' => __( 'Form Validation', 'wp-formy' ),
-				'icon'  => 'shield',
-			),
 			'spam'         => array(
 				'label' => __( 'Spam Protection', 'wp-formy' ),
 				'icon'  => 'warning',
