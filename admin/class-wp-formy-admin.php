@@ -811,6 +811,7 @@ class WP_Formy_Admin {
 					'ajaxurl'      => admin_url( 'admin-ajax.php' ),
 					'nonce_save'   => wp_create_nonce( 'wpf_save_form' ),
 					'nonce_import' => wp_create_nonce( 'wpf_import_form' ),
+					'formsUrl'     => admin_url( 'admin.php?page=wp-formy' ),
 				)
 			);
 		}

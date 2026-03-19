@@ -1483,8 +1483,11 @@ function initWPFormyBuilder() {
                     }
                     window.alert(status === 'draft' ? 'Draft saved successfully.' : 'Form saved successfully.');
 
-                    if (status !== 'draft' && data.data && data.data.forms_url) {
-                        window.location.href = data.data.forms_url;
+                    if (status !== 'draft') {
+                        const formsUrl = (window.wpFormyBuilder && window.wpFormyBuilder.formsUrl)
+                            ? window.wpFormyBuilder.formsUrl
+                            : '/wp-admin/admin.php?page=wp-formy';
+                        window.location.href = formsUrl;
                     }
                 } else {
                     window.alert(data.data || 'Unable to save form.');
